@@ -5,14 +5,41 @@
 # the controller has a full complement of partitions.  this is unlikely
 # for a freshly installed controller
 #
-# edit this path to point at the controller data directory
-CONTROLLER_ROOT=/appdyn/controller
+# the usual suspects
+CANDIDATES=(
+	/appdyn/controller 
+	/opt/appdynamics/controller 
+	/opt/AppDynamics/controller 
+	/opt/AppDynamics/Controller
+	~/controller
+	~/Controller
+)
+
+for path in . ${CANDIDATES[*]} ; do
+	if [ -x $path/bin/controller.sh ] ; then
+		CONTROLLER_ROOT=`pwd -P`
+	fi
+done
+
 cd $CONTROLLER_ROOT
 
+MYSQL=
 if [ -x HA/mysqlclient.sh ] ; then
 	MYSQL=HA/mysqlclient.sh
 else
-	MYSQL="bin/controller.sh login-db"
+	if [ -x bin/controller.sh ] ; then
+		if [ -r db/.rootpw ] ; then
+			MYSQL="bin/controller.sh login-db"
+		else
+			echo "this tool requires a readable db/.rootpw"
+			exit 1
+		fi
+	fi
+fi
+
+if [ -z "$MYSQL" ] ; then
+	echo "cannot find controller root: please cd to it"
+	exit 1
 fi
 
 eval `echo "select name,value from global_configuration where name like '%retention%';" | 
