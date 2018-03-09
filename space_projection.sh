@@ -1,10 +1,14 @@
 #!/bin/bash
 #
+# $Id: space_projection.sh  2018-03-09 14:09:50 cmayer
+#
 # this script takes an inventory of the controller data, and projects
 # the disk space usage by the partitioned tables.   it assumes that
 # the controller has a full complement of partitions.  this is unlikely
 # for a freshly installed controller
 #
+SCRIPTDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -P)" 
+
 # the usual suspects
 CANDIDATES=(
 	/appdyn/controller 
@@ -13,32 +17,40 @@ CANDIDATES=(
 	/opt/AppDynamics/Controller
 	~/controller
 	~/Controller
+	$SCRIPTDIR
+	$SCRIPTDIR/..
 )
 
-for path in . ${CANDIDATES[*]} ; do
+MYSQL=
+CONTROLLER_ROOT=
+
+# let's search for a usable controller
+for path in $(pwd -P) ${CANDIDATES[*]} ; do
+	cd $CONTROLLER_ROOT
+	if [ -x $path/HA/mysqlclient.sh ] ; then
+		CONTROLLER_ROOT=$path
+		MYSQL=$path/HA/mysqlclient.sh
+		break
+	fi
 	if [ -x $path/bin/controller.sh ] ; then
-		CONTROLLER_ROOT=`pwd -P`
+		if [ ! -r $path/db/.rootpw ] ; then
+			continue
+		fi
+		CONTROLLER_ROOT=$path
+		MYSQL="$path/bin/controller.sh login-db"
+		break
 	fi
 done
 
-cd $CONTROLLER_ROOT
-
-MYSQL=
-if [ -x HA/mysqlclient.sh ] ; then
-	MYSQL=HA/mysqlclient.sh
-else
-	if [ -x bin/controller.sh ] ; then
-		if [ -r db/.rootpw ] ; then
-			MYSQL="bin/controller.sh login-db"
-		else
-			echo "this tool requires a readable db/.rootpw"
-			exit 1
-		fi
-	fi
+if [ -z $CONTROLLER_ROOT ] ; then
+	echo "cannot find controller root: please cd to it"
+	exit 1
 fi
 
-if [ -z "$MYSQL" ] ; then
-	echo "cannot find controller root: please cd to it"
+cd $CONTROLLER_ROOT
+
+if [ ! -r db/.rootpw ] ; then
+	echo "this tool requires a readable db/.rootpw"
 	exit 1
 fi
 
@@ -53,6 +65,7 @@ eval `echo "select name,value from global_configuration where name like '%retent
 	/machine.snapshots.retention.period/ { printf("MSNAP=%d\n", $2); }
 	/events.retention.period/ { printf("EVENT=%d\n", $2); }
 '`
+if false ; then
 echo "retention settings from database"
 echo ten: $TEN
 echo min: $MIN
@@ -61,10 +74,11 @@ echo snap: $SNAP
 echo tss: $TSS
 echo msnap: $MSNAP
 echo event: $EVENT
+fi
 
 DATADIR=`grep ^datadir $CONTROLLER_ROOT/db/db.cnf | cut -d = -f 2`
 cd $DATADIR/controller
-ls -l *PART*.ibd | awk -v SNAP=$SNAP -v HOUR=$HOUR -v MIN=$MIN -v TEN=$TEN -v TSS=$TSS -v EVENT=$EVENT -v MSNAP=$MSNAP '
+ls -l *PART*.ibd | gawk -v SNAP=$SNAP -v HOUR=$HOUR -v MIN=$MIN -v TEN=$TEN -v TSS=$TSS -v EVENT=$EVENT -v MSNAP=$MSNAP '
 	function units(amt) {
 		scale = 1;
 		while (amt > 1000) { scale += 1; amt /= 1000; }
@@ -85,7 +99,7 @@ ls -l *PART*.ibd | awk -v SNAP=$SNAP -v HOUR=$HOUR -v MIN=$MIN -v TEN=$TEN -v TS
 		else if (table ~ "requestdata") group = "snapshot";
 		else if (table ~ "process_snapshot") group = "process snapshot";
 		else if (table ~ "top_summary") group = "tss";
-		else print($table);
+		else group = "other";
 
 		split(t[3],p,"."); 
 		part = p[1];
@@ -112,8 +126,9 @@ ls -l *PART*.ibd | awk -v SNAP=$SNAP -v HOUR=$HOUR -v MIN=$MIN -v TEN=$TEN -v TS
 		pc["event"]=EVENT;
 		pc["tss"]=TSS;
 
-		# every table
-		for (i in ts) {
+		asorti(ts, tsi);
+		for (ti in tsi) { 
+			i = tsi[ti] ; 
 			subpart = 1;
 			if (i == "metricdata_min" || i == "metricdata_ten_min") subpart = 4;
 			group = tg[i];
@@ -126,7 +141,9 @@ ls -l *PART*.ibd | awk -v SNAP=$SNAP -v HOUR=$HOUR -v MIN=$MIN -v TEN=$TEN -v TS
 				i, group, tc[i] / subpart, pc[group], units(hw[i]), units(ts[i]), units(proj));
 		}
 		printf("-------\n");
-		for (i in gs) {
+		asorti(gs, gsi);
+		for (gi in gsi) {
+			i = gsi[gi];
 			printf("%s: partitions %d current %s projection %s\n",
 				i, pc[i], units(gs[i]), units(gp[i]));
 		}
