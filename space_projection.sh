@@ -54,6 +54,8 @@ if [ ! -r db/.rootpw ] ; then
 	exit 1
 fi
 
+MIN=0
+
 eval `echo "select name,value from global_configuration where name like '%retention%';" | 
 	$MYSQL |
 	awk '
@@ -65,6 +67,12 @@ eval `echo "select name,value from global_configuration where name like '%retent
 	/machine.snapshots.retention.period/ { printf("MSNAP=%d\n", $2); }
 	/events.retention.period/ { printf("EVENT=%d\n", $2); }
 '`
+
+if [ $MIN -eq 0 ] ; then
+	echo "could not connect to database"
+	exit 1
+fi
+
 if false ; then
 echo "retention settings from database"
 echo ten: $TEN
