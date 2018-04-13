@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# $Id: space_projection.sh  2018-03-09 14:09:50 cmayer
+# $Id: space_projection.sh 1.2 2018-04-13 13:01:21 cmayer
 #
 # this script takes an inventory of the controller data, and projects
 # the disk space usage by the partitioned tables.   it assumes that
