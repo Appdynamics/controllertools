@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# $Id: passivekill.sh  2018-03-26 07:48:53 cmayer
+# $Id: passivekill.sh 1.0 2018-03-26 07:48:53 cmayer
 #
 # this is intended to be a cron job that runs frequently on each node
 # if at any time, it returns 'passive' from the database, it is to
