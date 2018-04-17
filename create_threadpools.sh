@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# $Id: create_threadpools.sh  2018-03-09 14:14:22 cmayer
+# $Id: create_threadpools.sh 1.2 2018-04-17 08:48:52 cmayer
 #
 # Create thread pools similar to the ones we use on our SaaS controllers
 # to dedicate resources to different types of agent requests, and the UI.
@@ -8,6 +8,7 @@
 # Reference: https://docs.oracle.com/cd/E18930_01/html/821-2433/gentextid-110.html#scrolltoc
 # originally by Mike Przybylski
 #
+
 CONTROLLER_HOME=/opt/AppDynamics/Controller
 cp $CONTROLLER_HOME/appserver/glassfish/domains/domain1/config/domain.xml $CONTROLLER_HOME/domain.xml-pre-add
 
@@ -68,6 +69,37 @@ fi
 	fi
 }
 
+function parse_desc() {
+	eval $(echo $1 | awk -F: '{printf("name=%s;port=%d;count=%d\n",$1,$2,$3);}')
+}
+
+while getopts 't:p:hn' arg ; do
+	case $arg in
+	n)
+		ECHO=echo
+		;;
+	p)
+		parse_desc $OPTARG
+		$ECHO change_port $name $port
+		;;
+	t)
+		parse_desc $OPTARG
+		$ECHO create_threadpool_quartet $name $port $count
+		;;
+	h|*) 
+		echo "usage"
+		;;
+	esac
+done
+exit
+
+for pool in $pools ; do
+	echo create_threadpool_quartet $pool ${ports[$pool]} ${threads[$pool]}
+done
+
+exit
+
+if false ; then
 change_port http-listener-1 8079
 change_port http-listener-2 4443
 
@@ -82,5 +114,6 @@ create_threadpool_quartet analyticsagent 8088 30
 create_threadpool_quartet universalagent 8093 16
 create_threadpool_quartet restapi 8095 16
 create_threadpool_quartet entitysearch 8096 2
+fi
 
 echo "All thread pools created successfully. Please restart the controller app server."
