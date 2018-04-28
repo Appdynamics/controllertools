@@ -25,7 +25,7 @@ LASTDUMP=0
 DUMPFREQ=$((30*60))
 KEEP=5
 
-DUMPDIR=$CONTROLLER_ROOT/appserver/glassfish/domains/domain1/config
+DUMPDIR=$CONTROLLER_ROOT/logs
 losecount=0
 
 DUMPCMD="$CONTROLLER_ROOT/appserver/glassfish/bin/asadmin --user=admin --passwordfile=$CONTROLLER_ROOT/.passwordfile \
@@ -53,7 +53,6 @@ while [ 1 ]; do
 			# we can't dump too often
 			#
 			if [ $(date +%s) -gt $((LASTDUMP + DUMPFREQ)) ] ; then
-				echo thread dump
 				pid=$(pgrep -f $CONTROLLER_ROOT/appserver/glassfish/domains/domain1/config)
 
 				#
@@ -64,14 +63,11 @@ while [ 1 ]; do
 				#
 				dumpfile=$DUMPDIR/thread_dump.log
 				if [ -f $dumpfile ] ; then
-					echo there is a dumpfile
 					mv $dumpfile $DUMPDIR/thread_dump.$(stat -f %Sc $d | tr ' ' '-').log
 					rm -f $(ls -1t $DUMPDIR/thread_dump.* 2>/dev/null | tail +$((KEEP+1)))
 				fi
 				$DUMPCMD >$dumpfile
 				LASTDUMP=$(date +%s)
-			else
-				echo suppressed thread dump
 			fi
 			losecount=0
 		fi
