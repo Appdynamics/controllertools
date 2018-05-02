@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# $Id: hangcheck.sh 1.2 2018-04-28 14:42:23 cmayer
+# $Id: hangcheck.sh 1.3 2018-05-01 17:50:32 cmayer
 #
 # this is intended to be a process that pings a local controller port
 # if it times out often enough, generate a thread dump.
@@ -19,18 +19,15 @@ LOGFILE=$CONTROLLER_ROOT/logs/hangcheck.log
 #
 PROTOCOL=http
 PORT=8293
-URL=$PROTOCOL://localhost:$PORT/controller/rest/serverstatus
 
 #
 # every $INTERVAL seconds
 #
 INTERVAL=15
-
 #
 # $FAILURES in a row causes dump
 #
 FAILURES=3
-
 #
 # we only make 1 dump every $DUMPFREQ seconds
 #
@@ -47,6 +44,24 @@ KEEP=5
 DUMPDIR=$CONTROLLER_ROOT/logs
 
 #
+# how long to wait for the wget response
+#
+PINGTIME=10
+
+#
+# for debugging of this script
+#
+if false ; then
+PORT=8290
+INTERVAL=5
+FAILURES=1
+DUMPFREQ=1
+PINGTIME=1
+fi
+
+URL=$PROTOCOL://localhost:$PORT/controller/rest/serverstatus
+
+#
 # not strictly the last dump - the last dump from this process
 #
 lastdump=0
@@ -61,6 +76,8 @@ losecount=0
 #
 DUMPCMD="$CONTROLLER_ROOT/appserver/glassfish/bin/asadmin --user=admin --passwordfile=$CONTROLLER_ROOT/.passwordfile \
 	generate-jvm-report --type=thread"
+MYSQLSTATE="show engine innodb status;select * from information_schema.processlist;"
+SQL=$CONTROLLER_ROOT/HA/mysqlclient.sh
 
 while true ; do
 	NOW=$(date +%s)
@@ -69,7 +86,7 @@ while true ; do
 	#
 	# ping our url
 	#
-	wget -O /dev/null --quiet --tries 1 -T 10 $URL
+	wget -O /dev/null --quiet --tries 1 -T $PINGTIME $URL
 	ret=$?
 	#
 	# oh, no! we can't get in
@@ -92,10 +109,13 @@ while true ; do
 				#
 				dumpfile=$DUMPDIR/thread_dump.log
 				if [ -f $dumpfile ] ; then
-					mv $dumpfile $DUMPDIR/thread_dump.$(stat -f %Sc $d | tr ' ' '-').log
-					rm -f $(ls -1t $DUMPDIR/thread_dump.* 2>/dev/null | tail +$((KEEP+1)))
+					mv $dumpfile $DUMPDIR/thread_dump.$(stat -c %y $dumpfile | tr ' ' '-').log
+					rm -f $(ls -1t $DUMPDIR/thread_dump.* 2>/dev/null | tail -n +$((KEEP+1)))
 				fi
-				$DUMPCMD >$dumpfile
+				date "+============== thread dump on %Y-%m-%d% at %H:%M:%S ==============" >$dumpfile
+				$DUMPCMD >>$dumpfile
+				echo "====================== mysql state ======================" >> $dumpfile 
+				echo "$MYSQLSTATE" | $SQL >> $dumpfile
 				lastdump=$(date +%s)
 			fi
 			losecount=0
