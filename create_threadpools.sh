@@ -102,6 +102,7 @@ exit
 if false ; then
 change_port http-listener-1 8079
 change_port http-listener-2 4443
+fi
 
 create_threadpool_quartet config 8081 30
 create_threadpool_quartet metrics 8082 30
@@ -114,6 +115,5 @@ create_threadpool_quartet analyticsagent 8088 30
 create_threadpool_quartet universalagent 8093 16
 create_threadpool_quartet restapi 8095 16
 create_threadpool_quartet entitysearch 8096 2
-fi
 
 echo "All thread pools created successfully. Please restart the controller app server."
