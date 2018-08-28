@@ -56,7 +56,7 @@ while (defined (my $block = <STDIN>) ) {
       if (exists $args{csv}) {
 	 print "$datetm,$query_tm,$lock_tm,$rows_ex\n" if $query_tm > $thresh_secs;
       } else {
-	 print "$datetm\tguery_tm=$query_tm\tlock_tm=$lock_tm\trows=$rows_ex\n" if $query_tm > $thresh_secs;
+	 print "$datetm\tquery_tm=$query_tm\tlock_tm=$lock_tm\trows=$rows_ex\n" if $query_tm > $thresh_secs;
       }
    }
 }
