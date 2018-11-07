@@ -22,7 +22,7 @@ hiwatermark=0
 alltables=()
 use_alltables=false
 use_saas=false
-MYSQL_PASSWORD=${MYSQL_PASSWORD:-`cat appd/db/.rootpw`}
+MYSQL_PASSWORD=${MYSQL_PASSWORD:-`cat $appd/db/.rootpw`}
 
 echo -n 'start convolving at ';
 echo `date +%d/%m/%Y\ %H:%M:%S`;
