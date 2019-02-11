@@ -403,8 +403,8 @@ function slowlog {
 	local slowlogf=$(awk -F= '$1 == "slow_query_log_file" {print $2}' ./db/db.cnf)
 	[[ -f "$slowlogf" ]] || { warn "unable to find MySQL slow.log file within ./db/db.cnf. Disabling $FN monitor."; return 1; }
 	type perl &> /dev/null || { warn "unable to find perl command. Install with yum install perl. Disabling $FN monitor."; return 1; }
-	type awk &> /dev/null || { warn "unable to find awk command. Disabling $FN monitor."; return 1; }
-	type dd &> /dev/null || { warn "unable to find dd command. Disabling $FN monitor."; return 1; }
+	type awk &> /dev/null || { warn "unable to find awk command. Install with yum install gawk. Disabling $FN monitor."; return 1; }
+	type dd &> /dev/null || { warn "unable to find dd command. Install with yum install coreutils. Disabling $FN monitor."; return 1; }
 
 	local bytesread=0 latestbyte=0 
 	local pattern='^[[:digit:]]+$'
