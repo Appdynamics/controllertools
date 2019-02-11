@@ -60,6 +60,10 @@
 # minor bug fix that prevented DB monitors from using db/.rootpw 
 # with MySQL v5.7 
 #                                               ran 21-Dec-2018
+#
+# added ability to include slowlogmetric.pl outputs in a light
+# weight manner
+#						ran Feb-2019
 
 PROGNAME=${0##*/}
 STEMNAME=${PROGNAME%%.*}
