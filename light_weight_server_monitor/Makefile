@@ -12,14 +12,15 @@ SHELL = 	/bin/bash
 EMBEDDER :=	../embed.pl
 EMBED :=	perl $(EMBEDDER)
 
+BASH_LIBS= ../obfus_lib.sh
 SOURCES_USING_LIB := $(wildcard mon*[0-9].sh)
 
 #$(warning SOURCES_USING_LIB= $(SOURCES_USING_LIB) )
 EMBEDDED_SOURCES := $(patsubst %.sh, %_e.sh, $(SOURCES_USING_LIB))
 
-all: $(EMBEDDED_SOURCES) Makefile
+all: $(EMBEDDED_SOURCES)
 
-%_e.sh: %.sh $(EMBEDDER)
+%_e.sh: %.sh $(EMBEDDER) $(BASH_LIBS) Makefile
 	$(EMBED) $< > $@
 
 # https://www.cmcrossroads.com/article/printing-value-makefile-variable
