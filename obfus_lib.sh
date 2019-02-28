@@ -284,8 +284,18 @@ function persist_mysql_passwd {
 	   	# directory !
 	   	export MYSQL_TEST_LOGIN_FILE=$APPD_ROOT/db/.mylogin.cnf
 
+		# MySQL bug: https://bugs.mysql.com/bug.php?id=74691 that silently accepts less
+		# characters than entered by user!
+		# Note MySQL bug report shows delimiting single quote work-around
+		# Note getpass source code: https://code.woboq.org/userspace/glibc/misc/getpass.c.html
+		# shows stdin opened if no /dev/tty available. Will use this.
+		# Work-around with:
+		# - separate and reliable password collection into a variable
+		# - use setsid to disconnect controlling TTY from sub-process
+		# - use Here string to setsid with single quotes around variable
+		getpw _XYZ
 		$APPD_ROOT/db/bin/mysql_config_editor reset
-		$APPD_ROOT/db/bin/mysql_config_editor set --user=root -p
+		setsid bash -c "$APPD_ROOT/db/bin/mysql_config_editor set --user=root -p 2>/dev/null" <<< "'$_XYZ'"
 	else
 		save_mysql_passwd $APPD_ROOT
 	fi
@@ -302,7 +312,10 @@ function get_dbport {
 }
 export -f get_dbport
 
-# simple wrapper for MySQL client
+# simple, sometimes unreliable, wrapper for MySQL client
+# WARNINGS:
+# - will not always work within sub-shell as some sites break Bash export of functions
+#   instead use: setup_mysql_connect || return 1; timeout 3s bash -c './db/bin/mysql -A $DBPARAMS controller <<< ...'
 function mysqlclient {
 	DBPORT=${DBPORT:-$(get_dbport)} || return 1
 	local CONNECT=(--host=localhost --protocol=TCP --user=root --port=$DBPORT)
@@ -315,3 +328,25 @@ function mysqlclient {
 	./db/bin/mysql -A "${CONNECT[@]}" controller
 }
 export -f mysqlclient
+
+# Observed client that has locally disabled Bash exported functions entirely by corrupting the ENV 
+# value for each function - likely an over reaction to Shellshock (see: https://dwheeler.com/essays/shellshock.html)
+# Can work-around by observing only breaks bash -c '... mysqlclient...' function calls at the moment and
+# so can split mysqlclient into set up function that creates all variables so that a simple call
+# to ./db/bin/mysql -A $DBPARAMS controller will then suffice instead of function call.
+# NOTE: cannot export Bash arrays either !
+#
+# ASSUMPTIONS:
+# - must be idempotent i.e. can be run multiply without issue
+function setup_mysql_connect {
+	DBPORT=${DBPORT:-$(get_dbport)} || return 1
+	DBPARAMS="--host=localhost --protocol=TCP --user=root --port=$DBPORT"
+	APPD_ROOT=${APPD_ROOT:-"$(pwd -P)"}		# assumes directory checked earlier
+	export MYSQL_TEST_LOGIN_FILE=${MYSQL_TEST_LOGIN_FILE:-$APPD_ROOT/db/.mylogin.cnf}
+	if [[ ! -f $APPD_ROOT/db/.mylogin.cnf ]] ; then
+		dbpasswd=${dbpasswd:-$(get_mysql_passwd 2> /dev/null)} || err "MySQL password not already persisted. Please re-run without -n parameter to do that"
+		DBPARAMS+=" --password=$dbpasswd"
+	fi
+	export DBPARAMS
+}
+export -f setup_mysql_connect
