@@ -57,6 +57,16 @@
 # cope with case when no HA Toolkit deployed
 #						ran 17-Jul-2018
 #
+# minor bug fix that prevented DB monitors from using db/.rootpw 
+# with MySQL v5.7 
+#                                               ran 21-Dec-2018
+#
+# added ability to include slowlogmetric.pl outputs in a light
+# weight manner
+#						ran Feb-2019
+#
+# removed/lessened dependency on Bash exported functions
+#						ran 27-Feb-2019
 
 PROGNAME=${0##*/}
 STEMNAME=${PROGNAME%%.*}
@@ -64,6 +74,7 @@ STARTTM=$(date +%s)
 TICKETNM=
 HOST=$(hostname)
 LOGDIR=/var/tmp
+MLOGF=${LOGDIR}/monX.log
 
 #  err "some message" [optional return code]
 function err {
@@ -72,11 +83,17 @@ function err {
    local r="${c[2]} (f=${c[1]},l=${c[0]})"                       # where in code?
 
    echo "ERROR: $r failed: $1" 1>&2
+   echo "[#|$(date +'%FT%T')|ERROR|$r failed: $1|#]" >> $MLOGF
 
    exit $exitcode
 }
 function warn {
    echo "WARN: $1" 1>&2
+   echo "[#|$(date +'%FT%T')|WARN|$1|#]" >> $MLOGF
+}
+function info {
+   echo "INFO: $1" 1>&2
+   echo "[#|$(date +'%FT%T')|INFO|$1|#]" >> $MLOGF
 }
 
 # For ease of deployment, locally embed/include function library at build time
@@ -440,6 +457,48 @@ export -f setup_mysql_connect
 ###################### End of embedded file: ../obfus_lib.sh
 
 
+# unchanged lines 48-79 of github/controllertools/slowlogmetric.pl of Feb-2019 version
+# Can change number of parse blocks and pause interval with optional parameters:
+#   parse_slowlog 500 5  # 500 blocks read with 5 second pause thereafter
+function parse_slowlog {
+   perl -se '
+use warnings;
+#use strict;
+# unchanged slowlogmetric.pl below
+$/ = "# User\@Host: ";                  # read in blocks delimited by this string
+
+my $insert_cmd1 = qr{LOAD DATA CONCURRENT LOCAL INFILE .dummy.txt. IGNORE INTO TABLE metricdata_min FIELDS};    # 2012 syntax
+my $insert_cmd2 = qr{.. .. LOAD DATA CONCURRENT LOCAL INFILE .dummy.txt. IGNORE INTO TABLE metricdata_min FIELDS}; # 2012 syntax
+my $insert_cmd3 = qr{INSERT IGNORE INTO metricdata_min\s+SELECT};       # 4.2 syntax
+my $insert_cmd = qr/(?:$insert_cmd1)|(?:$insert_cmd2)|(?:$insert_cmd3)/;
+
+print "timestamp,avg_query_tm,avg_lock_tm,rows\n" if $csv_needed;
+
+my $blocks_read = 0;
+while (defined (my $block = <STDIN>) ) {
+   ++$blocks_read;
+   while ($block =~ m/# Query_time: (\S+)\s+Lock_time: (\S+).*?Rows_examined: (\d+).*?SET timestamp=(\d+);\s+${insert_cmd}/msgc) {
+      my $query_tm = $1;
+      my $lock_tm = $2;
+      my $rows_ex = $3;
+      my $esecs = $4;
+
+      my @struct_tm = localtime( $esecs );
+      my $datetm = sprintf("%4d-%02d-%02dT%02d:%02d:%02d", $struct_tm[5]+1900, $struct_tm[4]+1, $struct_tm[3],
+                                                           $struct_tm[2], $struct_tm[1], $struct_tm[0]);
+
+      if ($csv_needed) {
+         print "$datetm,$query_tm,$lock_tm,$rows_ex\n" if $query_tm > $thresh_secs;
+      } else {
+         print "$datetm\tquery_tm=$query_tm\tlock_tm=$lock_tm\trows=$rows_ex\n" if $query_tm > $thresh_secs;
+      }
+   }
+   if ($pause_blocks > 0) {
+      sleep $pause_secs if ($blocks_read % $pause_blocks) == 0;
+   }
+}' -- -thresh_secs=0 -pause_blocks=${1:-400} -pause_secs=${2:-10} -csv_needed=0
+}
+
 function mk_logname {
 	(( $# == 1 )) || err "mk_logname: needs function name arg"
 	local FN=${1:-MISSING_FUNCNAME}
@@ -447,9 +506,11 @@ function mk_logname {
 }
 export -f mk_logname
 
-# return 0 if can get useful mysql client job, else 1
+# Return 0 if can get useful mysql client job, else 1.
+# Does not assume functions are exported by Bash.
 function check_db_connection {
-	timeout 59s bash -c 'T=$(mysqlclient <<< "select '\''YES'\''" 2>&1); [[ "$T" =~ ^YES ]] || exit 123'
+	setup_mysql_connect || return 1			# ensure $DBPARAMS configured
+	timeout 59s bash -c 'T=$(./db/bin/mysql -A $DBPARAMS controller <<< "select '\''YESCON'\''" 2>&1); [[ "$T" =~ YESCON$ ]] || { echo "$T" 1>&2; exit 123; }'
 	R=$? 
 	if (( $R == 123 )) ; then
 		warn "Can't check connect to MySQL server on 'localhost' retc=$R"
@@ -473,7 +534,7 @@ function run_iostat {
 	local DEVS=$(lsblk -dln | awk '$1 ~ /^sd/ {print $1}')
 	local interval=60
 	local count=$(( ($DEADLINE - $STARTTM)/$interval ))
-	( iostat -tzmx $DEVS $interval $count > $LOGF & echo $! > ${LOGDIR}/${FN}_${STEMNAME}.pid )
+	( iostat -tzmx $DEVS $interval $count > $LOGF ) &
 }
 
 function run_vmstat {
@@ -486,7 +547,7 @@ function run_vmstat {
 	local interval=30
 	local count=$(( ($DEADLINE - $STARTTM)/$interval ))
 	# need to flush STDOUT to ensure unbuffered & continuous output via pipe and redirection
-	( awk 'BEGIN {cmd="vmstat '"$interval $count"'"; while (( cmd | getline ) > 0) {print $0" "strftime("%Y-%m-%dT%T"); fflush()}}' > $LOGF & echo $! > ${LOGDIR}/${FN}_${STEMNAME}.pid )
+	( awk 'BEGIN {cmd="vmstat '"$interval $count"'"; while (( cmd | getline ) > 0) {print $0" "strftime("%Y-%m-%dT%T"); fflush()}}' > $LOGF ) &
 }
 
 function run_dbtest {
@@ -495,14 +556,14 @@ function run_dbtest {
 
 	# verify that running from controller install directory
 #	[[ -n "$(get_mysql_passwd 2> /dev/null)" ]] || { warn "unable to find MySQL password. Disabling $FN monitor."; return 1; }
-	check_db_connection 2>/dev/null || { warn "unable to connect to MySQL. Disabling $FN monitor."; return 1; }
+	setup_mysql_connect || return 1			# ensure $DBPARAMS configured
+	check_db_connection 2>> $MLOGF || { warn "unable to connect to MySQL. Disabling $FN monitor."; return 1; }
 
-	(
-	while true ; do
+	( while true ; do
 		sleep 0.9
 		(( $(date +%s) % 60 == 0 )) || continue
 		(( $(date +%s) < $DEADLINE )) || exit 0
-		timeout 59s bash -c 'V=$(mysqlclient <<< "
+		timeout 59s bash -c 'V=$(./db/bin/mysql -A $DBPARAMS controller <<< "
 drop table if exists mq_watchdog_test2_table;
 create table mq_watchdog_test2_table (i int);
 insert into mq_watchdog_test2_table values (1);
@@ -512,7 +573,7 @@ drop table mq_watchdog_test2_table;
 		R=$? 
 		(( $R == 124 )) && echo $(date +'%FT%T') \"DB test timed out\" retc=$R >> $LOGF
 		sleep 0.1
-	done & echo $! > ${LOGDIR}/${FN}_${STEMNAME}.pid )
+	done ) &
 }
 
 function run_dbvars {
@@ -522,25 +583,25 @@ function run_dbvars {
 
 	# verify that running from controller install directory
 #	[[ -n "$(get_mysql_passwd 2> /dev/null)" ]] || { warn "unable to find MySQL password. Disabling $FN monitor."; return 1; }
-	check_db_connection 2>/dev/null || { warn "unable to connect to MySQL. Disabling $FN monitor."; return 1; }
+	setup_mysql_connect || return 1			# ensure $DBPARAMS configured
+	check_db_connection 2>> $MLOGF || { warn "unable to connect to MySQL. Disabling $FN monitor."; return 1; }
 
 	# verify that required programs are installed
 	type awk &> /dev/null || { warn "unable to find awk command. Disabling $FN monitor."; return 1; }
 
-	(
-	while true ; do
+	( while true ; do
 		sleep 0.9
 		(( $(date +%s) % 60 == 0 )) || continue
 		(( $(date +%s) < $DEADLINE )) || exit 0
 		timeout 59s bash -c ' 
-eval $(awk '\''NF==2 {print "array_"$1"="$2}'\'' < <(mysqlclient <<< "show global status") )
+eval $(awk '\''NF==2 {print "array_"$1"="$2}'\'' < <(./db/bin/mysql -A $DBPARAMS controller <<< "show global status") )
 declare -a mv=(Queries Aborted_clients Aborted_connects Connections Created_tmp_tables Created_tmp_disk_tables)
 eval $(awk '\''BEGIN { print "declare -a vars=( " } { print $1"=${array_"$1"} " } END { print ")" }'\'' <<< "$(printf '\''%s\n'\'' ${mv[*]})" )
 IFS=, ; echo -e "${vars[*]}\t$(date +'%FT%T')" >> '"$LOGF"
 		R=$? 
 		(( $R == 124 )) && echo $(date +'%FT%T') \"DB vars check timed out\" retc=$R >> $LOGF
 		sleep 0.1
-	done & echo $! > ${LOGDIR}/${FN}_${STEMNAME}.pid )
+	done ) &
 }
 
 # display how many open file descriptors are used by Glassfish & MySQL
@@ -571,7 +632,7 @@ function run_fdcount {
 			gf="NO_GLASSFISH_RUNNING"
 		fi
 		echo -e "gf_fdcount=$gf\tmysql_fdcount=$sql\t$(date +'%FT%T')" >> $LOGF
-	done & echo $! > ${LOGDIR}/${FN}_${STEMNAME}.pid )
+	done ) &
 }
 
 # what is peak RSS and current RSS (see man 1 ps) for Glassfish and MySQL
@@ -609,7 +670,7 @@ function run_memsize {
 		[[ -n "$os" ]] || os="NO_FREE_OUTPUT"
 
 		echo -e "gf_rss_prss=$gf\tmysql_rss_prss=$sql\tos_bfree_sused=$os\t$(date +'%FT%T')" >> $LOGF
-	done & echo $! > ${LOGDIR}/${FN}_${STEMNAME}.pid )
+	done ) & 
 }
 
 # helper function to scan domain.xml for named network-listener port number
@@ -659,7 +720,7 @@ function port_count {
 		fi
 		echo -e "$(IFS=,; echo "${vals1[*]}" ),\t$(date +'%FT%T')" >> $LOGF
 		echo -e "$(IFS=,; echo "${vals2[*]}" ),\t$(date +'%FT%T')" >> $LOGF
-	done & echo $! > ${LOGDIR}/${FN}_${STEMNAME}.pid )
+	done ) &
 }
 
 # output NUMA stats for memory pool sizes across nodes. When lowest order memory pool
@@ -679,7 +740,7 @@ function numa_buddyrefs {
 		{ echo "datetime: $(date +'%FT%T')"; echo "#section buddyinfo:"; cat /proc/buddyinfo; echo
 		  echo "#section procvmstat:"; { cat /proc/vmstat | fgrep -i numa; }; echo
 		  echo "#section numastat:"; numastat; echo; } >> $LOGF
-	done & echo $! > ${LOGDIR}/${FN}_${STEMNAME}.pid )
+	done ) & 
 }
 
 # output of numastat java mysql - beware that this call actually stops the processes
@@ -696,7 +757,44 @@ function numa_stat {
 		(( $(date +%s) % 601 == 0 )) || continue
 		(( $(date +%s) < $DEADLINE )) || exit 0
 		{ echo "datetime: $(date +'%FT%T')"; numastat java mysql 2> /dev/null; echo; } >> $LOGF
-	done & echo $! > ${LOGDIR}/${FN}_${STEMNAME}.pid )
+	done ) & 
+}
+
+# incremental parse of MySQL slow.log - starts afresh each time monX is started
+# Tries hard to parse potentially huge backlog in low/light-weight manner with
+# initial config running at 400 input blocks then 10second pause
+function slowlog {
+	local FN=slowlog
+	local LOGF=$(mk_logname $FN)
+
+	# verify that running from controller install directory
+        [[ -f ./db/db.cnf ]] || { warn "unable to find ./db/db.cnf. Please run from controller install directory. Disabling $FN monitor."; return 1; }
+	local slowlogf=$(awk -F= '$1 == "slow_query_log_file" {print $2}' ./db/db.cnf)
+	[[ -f "$slowlogf" ]] || { warn "unable to find MySQL slow.log file within ./db/db.cnf. Disabling $FN monitor."; return 1; }
+	type perl &> /dev/null || { warn "unable to find perl command. Install with yum install perl. Disabling $FN monitor."; return 1; }
+	type awk &> /dev/null || { warn "unable to find awk command. Install with yum install gawk. Disabling $FN monitor."; return 1; }
+	type dd &> /dev/null || { warn "unable to find dd command. Install with yum install coreutils. Disabling $FN monitor."; return 1; }
+
+	local bytesread=0 latestbyte=0 
+	local pattern='^[[:digit:]]+$'
+	( while true ; do
+		sleep 1
+		(( $(date +%s) % 421 == 0 )) || continue
+		(( $(date +%s) < $DEADLINE )) || exit 0
+
+		latestbyte=$(awk '{print $5}' <<< "$(ls -l $slowlogf)")
+		if [[ "$latestbyte" =~ $pattern ]] ; then		# ensure valid numeric file size
+			(( $bytesread != "$latestbyte" )) || continue	# nothing to do yet
+			if (( $latestbyte < $bytesread )) ; then	# quick'n'dirty has file been rotated check
+				bytesread=0
+			fi
+#			parse_slowlog < <(dd bs=1 skip=$bytesread count=$(($latestbyte-$bytesread)) if=$slowlogf) >> $LOGF
+			dd bs=1 skip=$bytesread count=$(($latestbyte-$bytesread)) if=$slowlogf 2>/dev/null | parse_slowlog >> $LOGF
+		else
+			echo "$(date +'%FT%T')	Bad slowlog[$slowlogf] filesize[$latestbyte]" >> $LOGF
+		fi
+		bytesread=$latestbyte
+	done ) & 
 }
 
 # Bash 3.2 does not have associative arrays. It still is common. This addresses that.
@@ -734,7 +832,7 @@ function destroy_assoc_array {
 # Main body
 ###########################
 
-setup_assoc_array monitor "(i=run_iostat v=run_vmstat d=run_dbtest dv=run_dbvars f=run_fdcount m=run_memsize p=port_count n1=numa_buddyrefs n2=numa_stat)"
+setup_assoc_array monitor "(i=run_iostat v=run_vmstat d=run_dbtest dv=run_dbvars f=run_fdcount m=run_memsize p=port_count n1=numa_buddyrefs n2=numa_stat sl=slowlog)"
 
 declare OPTIONS=$(IFS=,; echo "${monitor_LAB[*]}")			# list of current options
 declare USAGESTR="Usage: 
@@ -745,6 +843,7 @@ $PROGNAME [-t <ticket_number>]
 	[-S <4d to stop after 4 days. Can use one of h,d,w,m durations for hours,days,weeks,month>]
 Where
 $(IFS=$'\n';paste <(echo "${monitor_LAB[*]}") <(echo "${monitor_VAL[*]}"))"
+EARGS="$*"								# original entered args
 default=1
 DEADLINE=2000000000							# always stop by Tue May 17 20:33:20 PDT 2033
 while getopts ":t:m:x:S:n" OPT ; do
@@ -803,6 +902,8 @@ while getopts ":t:m:x:S:n" OPT ; do
 done
 shift $(( $OPTIND - 1 ))
 
+info "$PROGNAME started with args: $EARGS"
+
 # check for and persist MYSQL root password - unless forbidden
 if [[ -z "$DONT_SAVE_PASSWD" ]] ; then
 	persist_mysql_passwd
@@ -825,11 +926,12 @@ if [[ -z $TICKETNM ]] ; then
 fi
 
 # clean up any previous .pid files & processes for same mon<VERSION> script
-[[ -n "$(ls ${LOGDIR}/*_${STEMNAME}.pid 2>/dev/null)" ]] && kill -9 $(cat ${LOGDIR}/*_${STEMNAME}.pid) 2> /dev/null
-rm -f ${LOGDIR}/*_${STEMNAME}.pid 2> /dev/null
+[[ -n "$(ls ${LOGDIR}/${STEMNAME}.pid 2>/dev/null)" ]] && kill -9 $(cat ${LOGDIR}/${STEMNAME}.pid) 2> /dev/null
+rm -f ${LOGDIR}/${STEMNAME}.pid 2> /dev/null
 
 for i in ${!to_monitor_*}; do
 	${!i}			# run monitor (assumes will background itself)
 done
+echo -$$ > ${LOGDIR}/${STEMNAME}.pid	# all sub-processes are in same process group
 
-echo "kill monitors with \"kill -9 "$(cat ${LOGDIR}/*_${STEMNAME}.pid)"\""
+info "kill monitors with \"kill -9 "$(cat ${LOGDIR}/${STEMNAME}.pid)"\""

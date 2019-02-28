@@ -57,6 +57,16 @@
 # cope with case when no HA Toolkit deployed
 #						ran 17-Jul-2018
 #
+# minor bug fix that prevented DB monitors from using db/.rootpw 
+# with MySQL v5.7 
+#                                               ran 21-Dec-2018
+#
+# added ability to include slowlogmetric.pl outputs in a light
+# weight manner
+#						ran Feb-2019
+#
+# removed/lessened dependency on Bash exported functions
+#						ran 27-Feb-2019
 
 PROGNAME=${0##*/}
 STEMNAME=${PROGNAME%%.*}
@@ -64,6 +74,7 @@ STARTTM=$(date +%s)
 TICKETNM=
 HOST=$(hostname)
 LOGDIR=/var/tmp
+MLOGF=${LOGDIR}/monX.log
 
 #  err "some message" [optional return code]
 function err {
@@ -72,373 +83,66 @@ function err {
    local r="${c[2]} (f=${c[1]},l=${c[0]})"                       # where in code?
 
    echo "ERROR: $r failed: $1" 1>&2
+   echo "[#|$(date +'%FT%T')|ERROR|$r failed: $1|#]" >> $MLOGF
 
    exit $exitcode
 }
 function warn {
    echo "WARN: $1" 1>&2
+   echo "[#|$(date +'%FT%T')|WARN|$1|#]" >> $MLOGF
+}
+function info {
+   echo "INFO: $1" 1>&2
+   echo "[#|$(date +'%FT%T')|INFO|$1|#]" >> $MLOGF
 }
 
 # For ease of deployment, locally embed/include function library at build time
 # Provides:
 #   mysqlclient, persist_mysql_passwd
 FUNCLIB=../obfus_lib.sh
+embed $FUNCLIB
 
-###################### Start of embedded file: ../obfus_lib.sh
-#!/bin/bash
+# unchanged lines 48-79 of github/controllertools/slowlogmetric.pl of Feb-2019 version
+# Can change number of parse blocks and pause interval with optional parameters:
+#   parse_slowlog 500 5  # 500 blocks read with 5 second pause thereafter
+function parse_slowlog {
+   perl -se '
+use warnings;
+#use strict;
+# unchanged slowlogmetric.pl below
+$/ = "# User\@Host: ";                  # read in blocks delimited by this string
 
-# definitive obfuscate/deobfuscate library for separate inclusion where needed
-#
-# Use/include in other scripts by:
-#  function err { # <string> <optional return code> }
-#  function warn { # <string> }
-#  . obfus_lib.sh
-#
-#  created lib
-#							ran 06-Aug-2018
-#
+my $insert_cmd1 = qr{LOAD DATA CONCURRENT LOCAL INFILE .dummy.txt. IGNORE INTO TABLE metricdata_min FIELDS};    # 2012 syntax
+my $insert_cmd2 = qr{.. .. LOAD DATA CONCURRENT LOCAL INFILE .dummy.txt. IGNORE INTO TABLE metricdata_min FIELDS}; # 2012 syntax
+my $insert_cmd3 = qr{INSERT IGNORE INTO metricdata_min\s+SELECT};       # 4.2 syntax
+my $insert_cmd = qr/(?:$insert_cmd1)|(?:$insert_cmd2)|(?:$insert_cmd3)/;
 
-declare -F err &> /dev/null || { echo "function with prototype 'err <str> <optional ret code> ' must be defined for obfus_lib.sh" 1>&2; exit 1; }
-declare -F warn &> /dev/null || { echo "function with prototype 'warn <str>' must be defined for obfus_lib.sh" 1>&2; exit 1; }
+print "timestamp,avg_query_tm,avg_lock_tm,rows\n" if $csv_needed;
 
-if [ "`uname`" == "Linux" ] ; then
-	BASE64_NO_WRAP="-w 0"
-else
-	BASE64_NO_WRAP=""
-fi
+my $blocks_read = 0;
+while (defined (my $block = <STDIN>) ) {
+   ++$blocks_read;
+   while ($block =~ m/# Query_time: (\S+)\s+Lock_time: (\S+).*?Rows_examined: (\d+).*?SET timestamp=(\d+);\s+${insert_cmd}/msgc) {
+      my $query_tm = $1;
+      my $lock_tm = $2;
+      my $rows_ex = $3;
+      my $esecs = $4;
 
-##  err "some message" [optional return code]
-#function err {
-#   local exitcode=${2:-1}                               # default to exit 1
-#   local c=($(caller 0))                                        # who called me?
-#   local r="${c[2]} (f=${c[1]},l=${c[0]})"                       # where in code?
-#
-#   echo "ERROR: $r failed: $1" 1>&2
-#
-#   exit $exitcode
-#}
-#function warn {
-#   echo "WARN: $1" 1>&2
-#}
+      my @struct_tm = localtime( $esecs );
+      my $datetm = sprintf("%4d-%02d-%02dT%02d:%02d:%02d", $struct_tm[5]+1900, $struct_tm[4]+1, $struct_tm[3],
+                                                           $struct_tm[2], $struct_tm[1], $struct_tm[0]);
 
-function debug
-{
-   while read -p '?dbg> ' L ; do
-      eval "$L"
-   done < /dev/stdin
+      if ($csv_needed) {
+         print "$datetm,$query_tm,$lock_tm,$rows_ex\n" if $query_tm > $thresh_secs;
+      } else {
+         print "$datetm\tquery_tm=$query_tm\tlock_tm=$lock_tm\trows=$rows_ex\n" if $query_tm > $thresh_secs;
+      }
+   }
+   if ($pause_blocks > 0) {
+      sleep $pause_secs if ($blocks_read % $pause_blocks) == 0;
+   }
+}' -- -thresh_secs=0 -pause_blocks=${1:-400} -pause_secs=${2:-10} -csv_needed=0
 }
-
-# one of pair of low level functions {obf,deobf}_<some extention>
-# Expected to output to STDOUT:
-#  ofa1 <obfuscated value of input parameter>
-#
-# Call as:
-#  obf_ofa1 <data>
-function obf_ofa1 {
-	local thisfn=${FUNCNAME[0]} step1 obf
-	(( $# == 1 )) || err "Usage: $thisfn <clear_data>"
-
-	step1=$(tr '\!-~' 'P-~\!-O' < <(echo -n $1)) || exit 1
-	[[ -n "$step1" ]] || err "produced empty step1 obfuscation" 2
-	obf=$(base64 $BASE64_NO_WRAP < <(echo -n $step1)) || exit 1
-	[[ -n "$obf" ]] || err "produced empty obfuscation" 3
-
-	# use part of function name after last '_' as obfuscator type
-	echo "${thisfn##*_} "$obf
-}
-export -f obf_ofa1
-
-# one of pair of low level functions {obf,deobf}_<some extention>
-# Expected to output to STDOUT:
-#  <deobfuscated value of input parameter>\n
-# Call as:
-#  deobf_ofa1 <data>
-function deobf_ofa1 {
-	local step1 clear
-	(( $# == 1 )) || err "Usage: ${FUNCNAME[0]} <obf_data>"
-
-	step1=$(base64 --decode $BASE64_NO_WRAP < <(echo -n $1)) || exit 1
-	[[ -n "$step1" ]] || err "produced empty step1 deobfuscation" 2
-	clear=$(tr '\!-~' 'P-~\!-O' < <(echo -n $step1)) || exit 1
-	[[ -n "$clear" ]] || err "produced empty cleartext" 3
-
-	echo $clear
-}
-export -f deobf_ofa1
-
-# one of pair of low level functions {obf,deobf}_<some extention>
-# Expected to output to STDOUT:
-#  ofa2 <obfuscated value of input parameter>
-#
-# Call as:
-#  obf_ofa2 <data>
-function obf_ofa2 {
-	local thisfn=${FUNCNAME[0]} step1 otype obf
-	(( $# == 1 )) || err "Usage: $thisfn <clear_data>"
-
-	obf=$(tr 'A-Za-z' 'N-ZA-Mn-za-m' < <(echo -n $1)) || exit 1
-	[[ -n "$obf" ]] || err "produced empty obfuscation" 2
-
-	# use part of function name after last '_' as obfuscator type
-	echo "${thisfn##*_} "$obf
-}
-export -f obf_ofa2
-
-# one of pair of low level functions {obf,deobf}_<some extention>
-# Expected to output to STDOUT:
-#  <deobfuscated value of input parameter>\n
-# Call as:
-#  deobf_ofa2 <data>
-function deobf_ofa2 {
-	local step1 clear
-	(( $# == 1 )) || err "Usage: ${FUNCNAME[0]} <obf_data>"
-
-	clear=$(tr 'A-Za-z' 'N-ZA-Mn-za-m' < <(echo -n $1)) || exit 1
-	[[ -n "$clear" ]] || err "produced empty cleartext" 2
-
-	echo $clear
-}
-export -f deobf_ofa2
-
-# overall wrapper function for obfuscation 
-# Call as
-#  obfuscate <obf type> <data>
-# or
-#  obfuscate <data>
-function obfuscate {
-	local data otype
-	(( $# == 1 || $# == 2 )) || err "Usage: ${FUNCNAME[0]} [<obf type>] <data>"
-
-	if (( $# == 2 )) ; then
-		otype=$1
-		data=$2
-	else
-		otype=''
-		data=$1
-	fi
-	case $otype in
-		ofa1 | '' )	obf_ofa1 "$data" ;;	# default case
-		ofa2)		obf_ofa2 "$data" ;;
-		*)		err "unknown obfuscation type \"$otype\"" ;;
-	esac
-}
-export -f obfuscate
-
-# overall wrapper for various de-obfuscator functions
-# Call as:
-#  deobfuscate <otype> <obf_data>
-function deobfuscate {
-	local otype=$1 data=$2
-	(( $# == 2 )) || err "Usage: ${FUNCNAME[0]} <obf type> <obf_data>"
-
-	case $otype in
-		ofa1)	deobf_ofa1 "$data" ;;
-		ofa2)	deobf_ofa2 "$data" ;;
-		*)	err "unknown obfuscation type \"$otype\"" ;;
-	esac
-}
-export -f deobfuscate
-
-# with help from:
-# http://stackoverflow.com/questions/1923435/how-do-i-echo-stars-when-reading-password-with-read
-function getpw { 
-        (( $# == 1 )) || err "Usage: ${FUNCNAME[0]} <variable name>"
-        local pwch inpw1 inpw2=' ' prompt; 
-        
-        ref=$1 
-	while [[ "$inpw1" != "$inpw2" ]] ; do
-		prompt="Enter MySQL root password: "
-		inpw1=''
-		while IFS= read -p "$prompt" -r -s -n1 pwch ; do 
-			if [[ -z "$pwch" ]]; then 
-				[[ -t 0 ]] && echo 
-				break 
-			else 
-				prompt='*'
-				inpw1+=$pwch 
-			fi 
-		done 
-
-		prompt="re-enter same password: "
-		inpw2=''
-		while IFS= read -p "$prompt" -r -s -n1 pwch ; do 
-			if [[ -z "$pwch" ]]; then 
-				[[ -t 0 ]] && echo
-				break 
-			else 
-				prompt='*'
-				inpw2+=$pwch 
-			fi 
-		done 
-	
-		[[ "$inpw1" == "$inpw2" ]] || echo "passwords unequal. Retry..." 1>&2
-	done
-
-	# indirect assignment (without local -n) needs eval. 
-	# This only works with global variables :-( Please use weird variable names to
-	# avoid namespace conflicts...
-        eval "${ref}=\$inpw1"            # assign passwd to parameter variable
-}
-export -f getpw
-
-# helper function to allow separate setting of passwd from command line.
-# Use this to persist an obfuscated version of the MySQL passwd to disk.
-function save_mysql_passwd {
-	(( $# == 1 )) || err "Usage: ${FUNCNAME[0]} <APPD_ROOT>"
-
-	local thisfn=${FUNCNAME[0]} APPD_ROOT=$1 
-	[[ -d $1 ]] || err "$thisfn: \"$1\" is not APPD_ROOT"
-	local rootpw_obf="$APPD_ROOT/db/.rootpw.obf"
-
-	getpw __inpw1 || exit 1		# updates __inpw1 *ONLY* if global variable
-	obf=$(obfuscate "$__inpw1") || exit 1
-	echo $obf > $rootpw_obf || err "$thisfn: failed to save obfuscated passwd to $rootpw_obf"
-	chmod 600 $rootpw_obf || warn "$thisfn: failed to make $rootpw_obf readonly"
-}
-export -f save_mysql_passwd
-
-###
-# get MySQL root password in a variety of ways.
-# 1. respect MYSQL_ROOT_PASSWD if present; please pass down to sub-scripts. 
-#    Do NOT persist to disk.
-# 2. respect $APPD_ROOT/db/.rootpw if present
-# 3. respect $APPD_ROOT/db/.rootpw.obf if present
-# 4. respect $APPD_ROOT/db/.mylogin.cnf if present and MYSQL_TEST_LOGIN_FILE defined
-# 5. gripe, letting them know how to persist a password
-#
-# Call as:
-#  dbpasswd=`get_mysql_passwd`
-function get_mysql_passwd {
-	if [[ -z "$APPD_ROOT" ]] ; then
-		[[ -f ./db/db.cnf ]] || err "unable to find ./db/db.cnf. Please run from controller install directory."
-		export APPD_ROOT="$(pwd -P)"
-	fi
-	local clear obf otype inpw2=' '
-	local rootpw="$APPD_ROOT/db/.rootpw" rootpw_obf="$APPD_ROOT/db/.rootpw.obf"
-	local mysqlpw="$APPD_ROOT/db/.mylogin.cnf"
-
-	if [[ -n "$MYSQL_ROOT_PASSWD" ]] ; then
-		echo $MYSQL_ROOT_PASSWD
-	elif [[ -s $rootpw && -r $rootpw ]] ; then 
-		echo $(<$rootpw)
-	elif [[ -s $rootpw_obf ]] ; then
-		IFS=$' ' read -r otype obf < $rootpw_obf
-		[[ -n "$otype" && -n "$obf" ]] || \
-			err "unable to read obfuscated passwd from $rootpw_obf"
-		clear=$(deobfuscate $otype $obf)
-		[[ -n "$clear" ]] || \
-			err "unable to deobfuscate passwd from $rootpw_obf" 2
-		echo $clear
-	elif [[ -s $mysqlpw ]] ; then
-	   	# sneaky way to get MySQL tool: mysql_config_editor to write its encrypted .mylogin.cnf
-	   	# to a place that is guaranteed to exist. Some clients have no writeable user home 
-	   	# directory !
-	   	export MYSQL_TEST_LOGIN_FILE=$APPD_ROOT/db/.mylogin.cnf
-
-		clear=$(awk -F= '$1 ~ "word" {print $2}' <<< "$($APPD_ROOT/db/bin/my_print_defaults -s client)")
-		[[ -n "$clear" ]] || err "unable to get passwd from $mysqlpw" 3
-		echo $clear
-	else
-		err "no password in MYSQL_ROOT_PASSWORD, db/.rootpw, db/.rootpw.obf or db/.mylogin.cnf please run save_mysql_passwd.sh" 3
-	fi
-}
-export -f get_mysql_passwd
-
-# if MySQL root password not already available (ENV variable or on disk), then write it to disk in obfuscated form. 
-# Extension of script HA/save_mysql_passwd.sh
-function persist_mysql_passwd {
-	[[ -f ./db/db.cnf ]] || err "unable to find ./db/db.cnf. Please run from controller install directory."
-	export APPD_ROOT="$(pwd -P)"
-
-	#
-	# prerequisites - die immediately if not present
-	#
-	type tr &> /dev/null || err "needs \'tr\'" 2
-	type base64 &> /dev/null || err "needs \'base64\'" 3
-	type awk &> /dev/null || err "needs \'awk\'" 4
-
-	dbpasswd=$(get_mysql_passwd 2> /dev/null)	# ignore return 1 and err msg if no passwd
-
-	if [[ -n "$dbpasswd" ]] ; then			# nothing to do ... just save & return
-		export dbpasswd
-		return 0
-	fi
-
-	# given no MySQL root password was found, now prompt user for it and persist to disk
-	if [[ -x $APPD_ROOT/db/bin/mysql_config_editor ]] ; then
-	   	# sneaky way to get MySQL tool: mysql_config_editor to write its encrypted .mylogin.cnf
-	   	# to a place that is guaranteed to exist. Some clients have no writeable user home 
-	   	# directory !
-	   	export MYSQL_TEST_LOGIN_FILE=$APPD_ROOT/db/.mylogin.cnf
-
-		# MySQL bug: https://bugs.mysql.com/bug.php?id=74691 that silently accepts less
-		# characters than entered by user!
-		# Note MySQL bug report shows delimiting single quote work-around
-		# Note getpass source code: https://code.woboq.org/userspace/glibc/misc/getpass.c.html
-		# shows stdin opened if no /dev/tty available. Will use this.
-		# Work-around with:
-		# - separate and reliable password collection into a variable
-		# - use setsid to disconnect controlling TTY from sub-process
-		# - use Here string to setsid with single quotes around variable
-		getpw _XYZ
-		$APPD_ROOT/db/bin/mysql_config_editor reset
-		setsid bash -c "$APPD_ROOT/db/bin/mysql_config_editor set --user=root -p 2>/dev/null" <<< "'$_XYZ'"
-	else
-		save_mysql_passwd $APPD_ROOT
-	fi
-}
-export -f persist_mysql_passwd
-
-function get_dbport {
-	if [[ ! -f ./db/db.cnf ]] ; then
-		err "unable to find ./db/db.cnf. Please run from controller install directory."
-		return 1
-	fi
-
-	awk -F= '$1 =="port" {print $2}' ./db/db.cnf
-}
-export -f get_dbport
-
-# simple, sometimes unreliable, wrapper for MySQL client
-# WARNINGS:
-# - will not always work within sub-shell as some sites break Bash export of functions
-#   instead use: setup_mysql_connect || return 1; timeout 3s bash -c './db/bin/mysql -A $DBPARAMS controller <<< ...'
-function mysqlclient {
-	DBPORT=${DBPORT:-$(get_dbport)} || return 1
-	local CONNECT=(--host=localhost --protocol=TCP --user=root --port=$DBPORT)
-	APPD_ROOT=${APPD_ROOT:-"$(pwd -P)"}		# assumes directory checked earlier
-	export MYSQL_TEST_LOGIN_FILE=${MYSQL_TEST_LOGIN_FILE:-$APPD_ROOT/db/.mylogin.cnf}
-	if [[ ! -f $APPD_ROOT/db/.mylogin.cnf ]] ; then
-		dbpasswd=${dbpasswd:-$(get_mysql_passwd 2> /dev/null)} || err "MySQL password not already persisted. Please re-run without -n parameter to do that"
-		CONNECT+=("--password=$dbpasswd")
-	fi
-	./db/bin/mysql -A "${CONNECT[@]}" controller
-}
-export -f mysqlclient
-
-# Observed client that has locally disabled Bash exported functions entirely by corrupting the ENV 
-# value for each function - likely an over reaction to Shellshock (see: https://dwheeler.com/essays/shellshock.html)
-# Can work-around by observing only breaks bash -c '... mysqlclient...' function calls at the moment and
-# so can split mysqlclient into set up function that creates all variables so that a simple call
-# to ./db/bin/mysql -A $DBPARAMS controller will then suffice instead of function call.
-# NOTE: cannot export Bash arrays either !
-#
-# ASSUMPTIONS:
-# - must be idempotent i.e. can be run multiply without issue
-function setup_mysql_connect {
-	DBPORT=${DBPORT:-$(get_dbport)} || return 1
-	DBPARAMS="--host=localhost --protocol=TCP --user=root --port=$DBPORT"
-	APPD_ROOT=${APPD_ROOT:-"$(pwd -P)"}		# assumes directory checked earlier
-	export MYSQL_TEST_LOGIN_FILE=${MYSQL_TEST_LOGIN_FILE:-$APPD_ROOT/db/.mylogin.cnf}
-	if [[ ! -f $APPD_ROOT/db/.mylogin.cnf ]] ; then
-		dbpasswd=${dbpasswd:-$(get_mysql_passwd 2> /dev/null)} || err "MySQL password not already persisted. Please re-run without -n parameter to do that"
-		DBPARAMS+=" --password=$dbpasswd"
-	fi
-	export DBPARAMS
-}
-export -f setup_mysql_connect
-###################### End of embedded file: ../obfus_lib.sh
-
 
 function mk_logname {
 	(( $# == 1 )) || err "mk_logname: needs function name arg"
@@ -447,9 +151,11 @@ function mk_logname {
 }
 export -f mk_logname
 
-# return 0 if can get useful mysql client job, else 1
+# Return 0 if can get useful mysql client job, else 1.
+# Does not assume functions are exported by Bash.
 function check_db_connection {
-	timeout 59s bash -c 'T=$(mysqlclient <<< "select '\''YES'\''" 2>&1); [[ "$T" =~ ^YES ]] || exit 123'
+	setup_mysql_connect || return 1			# ensure $DBPARAMS configured
+	timeout 59s bash -c 'T=$(./db/bin/mysql -A $DBPARAMS controller <<< "select '\''YESCON'\''" 2>&1); [[ "$T" =~ YESCON$ ]] || { echo "$T" 1>&2; exit 123; }'
 	R=$? 
 	if (( $R == 123 )) ; then
 		warn "Can't check connect to MySQL server on 'localhost' retc=$R"
@@ -473,7 +179,7 @@ function run_iostat {
 	local DEVS=$(lsblk -dln | awk '$1 ~ /^sd/ {print $1}')
 	local interval=60
 	local count=$(( ($DEADLINE - $STARTTM)/$interval ))
-	( iostat -tzmx $DEVS $interval $count > $LOGF & echo $! > ${LOGDIR}/${FN}_${STEMNAME}.pid )
+	( iostat -tzmx $DEVS $interval $count > $LOGF ) &
 }
 
 function run_vmstat {
@@ -486,7 +192,7 @@ function run_vmstat {
 	local interval=30
 	local count=$(( ($DEADLINE - $STARTTM)/$interval ))
 	# need to flush STDOUT to ensure unbuffered & continuous output via pipe and redirection
-	( awk 'BEGIN {cmd="vmstat '"$interval $count"'"; while (( cmd | getline ) > 0) {print $0" "strftime("%Y-%m-%dT%T"); fflush()}}' > $LOGF & echo $! > ${LOGDIR}/${FN}_${STEMNAME}.pid )
+	( awk 'BEGIN {cmd="vmstat '"$interval $count"'"; while (( cmd | getline ) > 0) {print $0" "strftime("%Y-%m-%dT%T"); fflush()}}' > $LOGF ) &
 }
 
 function run_dbtest {
@@ -495,14 +201,14 @@ function run_dbtest {
 
 	# verify that running from controller install directory
 #	[[ -n "$(get_mysql_passwd 2> /dev/null)" ]] || { warn "unable to find MySQL password. Disabling $FN monitor."; return 1; }
-	check_db_connection 2>/dev/null || { warn "unable to connect to MySQL. Disabling $FN monitor."; return 1; }
+	setup_mysql_connect || return 1			# ensure $DBPARAMS configured
+	check_db_connection 2>> $MLOGF || { warn "unable to connect to MySQL. Disabling $FN monitor."; return 1; }
 
-	(
-	while true ; do
+	( while true ; do
 		sleep 0.9
 		(( $(date +%s) % 60 == 0 )) || continue
 		(( $(date +%s) < $DEADLINE )) || exit 0
-		timeout 59s bash -c 'V=$(mysqlclient <<< "
+		timeout 59s bash -c 'V=$(./db/bin/mysql -A $DBPARAMS controller <<< "
 drop table if exists mq_watchdog_test2_table;
 create table mq_watchdog_test2_table (i int);
 insert into mq_watchdog_test2_table values (1);
@@ -512,7 +218,7 @@ drop table mq_watchdog_test2_table;
 		R=$? 
 		(( $R == 124 )) && echo $(date +'%FT%T') \"DB test timed out\" retc=$R >> $LOGF
 		sleep 0.1
-	done & echo $! > ${LOGDIR}/${FN}_${STEMNAME}.pid )
+	done ) &
 }
 
 function run_dbvars {
@@ -522,25 +228,25 @@ function run_dbvars {
 
 	# verify that running from controller install directory
 #	[[ -n "$(get_mysql_passwd 2> /dev/null)" ]] || { warn "unable to find MySQL password. Disabling $FN monitor."; return 1; }
-	check_db_connection 2>/dev/null || { warn "unable to connect to MySQL. Disabling $FN monitor."; return 1; }
+	setup_mysql_connect || return 1			# ensure $DBPARAMS configured
+	check_db_connection 2>> $MLOGF || { warn "unable to connect to MySQL. Disabling $FN monitor."; return 1; }
 
 	# verify that required programs are installed
 	type awk &> /dev/null || { warn "unable to find awk command. Disabling $FN monitor."; return 1; }
 
-	(
-	while true ; do
+	( while true ; do
 		sleep 0.9
 		(( $(date +%s) % 60 == 0 )) || continue
 		(( $(date +%s) < $DEADLINE )) || exit 0
 		timeout 59s bash -c ' 
-eval $(awk '\''NF==2 {print "array_"$1"="$2}'\'' < <(mysqlclient <<< "show global status") )
+eval $(awk '\''NF==2 {print "array_"$1"="$2}'\'' < <(./db/bin/mysql -A $DBPARAMS controller <<< "show global status") )
 declare -a mv=(Queries Aborted_clients Aborted_connects Connections Created_tmp_tables Created_tmp_disk_tables)
 eval $(awk '\''BEGIN { print "declare -a vars=( " } { print $1"=${array_"$1"} " } END { print ")" }'\'' <<< "$(printf '\''%s\n'\'' ${mv[*]})" )
 IFS=, ; echo -e "${vars[*]}\t$(date +'%FT%T')" >> '"$LOGF"
 		R=$? 
 		(( $R == 124 )) && echo $(date +'%FT%T') \"DB vars check timed out\" retc=$R >> $LOGF
 		sleep 0.1
-	done & echo $! > ${LOGDIR}/${FN}_${STEMNAME}.pid )
+	done ) &
 }
 
 # display how many open file descriptors are used by Glassfish & MySQL
@@ -571,7 +277,7 @@ function run_fdcount {
 			gf="NO_GLASSFISH_RUNNING"
 		fi
 		echo -e "gf_fdcount=$gf\tmysql_fdcount=$sql\t$(date +'%FT%T')" >> $LOGF
-	done & echo $! > ${LOGDIR}/${FN}_${STEMNAME}.pid )
+	done ) &
 }
 
 # what is peak RSS and current RSS (see man 1 ps) for Glassfish and MySQL
@@ -609,7 +315,7 @@ function run_memsize {
 		[[ -n "$os" ]] || os="NO_FREE_OUTPUT"
 
 		echo -e "gf_rss_prss=$gf\tmysql_rss_prss=$sql\tos_bfree_sused=$os\t$(date +'%FT%T')" >> $LOGF
-	done & echo $! > ${LOGDIR}/${FN}_${STEMNAME}.pid )
+	done ) & 
 }
 
 # helper function to scan domain.xml for named network-listener port number
@@ -659,7 +365,7 @@ function port_count {
 		fi
 		echo -e "$(IFS=,; echo "${vals1[*]}" ),\t$(date +'%FT%T')" >> $LOGF
 		echo -e "$(IFS=,; echo "${vals2[*]}" ),\t$(date +'%FT%T')" >> $LOGF
-	done & echo $! > ${LOGDIR}/${FN}_${STEMNAME}.pid )
+	done ) &
 }
 
 # output NUMA stats for memory pool sizes across nodes. When lowest order memory pool
@@ -679,7 +385,7 @@ function numa_buddyrefs {
 		{ echo "datetime: $(date +'%FT%T')"; echo "#section buddyinfo:"; cat /proc/buddyinfo; echo
 		  echo "#section procvmstat:"; { cat /proc/vmstat | fgrep -i numa; }; echo
 		  echo "#section numastat:"; numastat; echo; } >> $LOGF
-	done & echo $! > ${LOGDIR}/${FN}_${STEMNAME}.pid )
+	done ) & 
 }
 
 # output of numastat java mysql - beware that this call actually stops the processes
@@ -696,7 +402,44 @@ function numa_stat {
 		(( $(date +%s) % 601 == 0 )) || continue
 		(( $(date +%s) < $DEADLINE )) || exit 0
 		{ echo "datetime: $(date +'%FT%T')"; numastat java mysql 2> /dev/null; echo; } >> $LOGF
-	done & echo $! > ${LOGDIR}/${FN}_${STEMNAME}.pid )
+	done ) & 
+}
+
+# incremental parse of MySQL slow.log - starts afresh each time monX is started
+# Tries hard to parse potentially huge backlog in low/light-weight manner with
+# initial config running at 400 input blocks then 10second pause
+function slowlog {
+	local FN=slowlog
+	local LOGF=$(mk_logname $FN)
+
+	# verify that running from controller install directory
+        [[ -f ./db/db.cnf ]] || { warn "unable to find ./db/db.cnf. Please run from controller install directory. Disabling $FN monitor."; return 1; }
+	local slowlogf=$(awk -F= '$1 == "slow_query_log_file" {print $2}' ./db/db.cnf)
+	[[ -f "$slowlogf" ]] || { warn "unable to find MySQL slow.log file within ./db/db.cnf. Disabling $FN monitor."; return 1; }
+	type perl &> /dev/null || { warn "unable to find perl command. Install with yum install perl. Disabling $FN monitor."; return 1; }
+	type awk &> /dev/null || { warn "unable to find awk command. Install with yum install gawk. Disabling $FN monitor."; return 1; }
+	type dd &> /dev/null || { warn "unable to find dd command. Install with yum install coreutils. Disabling $FN monitor."; return 1; }
+
+	local bytesread=0 latestbyte=0 
+	local pattern='^[[:digit:]]+$'
+	( while true ; do
+		sleep 1
+		(( $(date +%s) % 421 == 0 )) || continue
+		(( $(date +%s) < $DEADLINE )) || exit 0
+
+		latestbyte=$(awk '{print $5}' <<< "$(ls -l $slowlogf)")
+		if [[ "$latestbyte" =~ $pattern ]] ; then		# ensure valid numeric file size
+			(( $bytesread != "$latestbyte" )) || continue	# nothing to do yet
+			if (( $latestbyte < $bytesread )) ; then	# quick'n'dirty has file been rotated check
+				bytesread=0
+			fi
+#			parse_slowlog < <(dd bs=1 skip=$bytesread count=$(($latestbyte-$bytesread)) if=$slowlogf) >> $LOGF
+			dd bs=1 skip=$bytesread count=$(($latestbyte-$bytesread)) if=$slowlogf 2>/dev/null | parse_slowlog >> $LOGF
+		else
+			echo "$(date +'%FT%T')	Bad slowlog[$slowlogf] filesize[$latestbyte]" >> $LOGF
+		fi
+		bytesread=$latestbyte
+	done ) & 
 }
 
 # Bash 3.2 does not have associative arrays. It still is common. This addresses that.
@@ -734,7 +477,7 @@ function destroy_assoc_array {
 # Main body
 ###########################
 
-setup_assoc_array monitor "(i=run_iostat v=run_vmstat d=run_dbtest dv=run_dbvars f=run_fdcount m=run_memsize p=port_count n1=numa_buddyrefs n2=numa_stat)"
+setup_assoc_array monitor "(i=run_iostat v=run_vmstat d=run_dbtest dv=run_dbvars f=run_fdcount m=run_memsize p=port_count n1=numa_buddyrefs n2=numa_stat sl=slowlog)"
 
 declare OPTIONS=$(IFS=,; echo "${monitor_LAB[*]}")			# list of current options
 declare USAGESTR="Usage: 
@@ -745,6 +488,7 @@ $PROGNAME [-t <ticket_number>]
 	[-S <4d to stop after 4 days. Can use one of h,d,w,m durations for hours,days,weeks,month>]
 Where
 $(IFS=$'\n';paste <(echo "${monitor_LAB[*]}") <(echo "${monitor_VAL[*]}"))"
+EARGS="$*"								# original entered args
 default=1
 DEADLINE=2000000000							# always stop by Tue May 17 20:33:20 PDT 2033
 while getopts ":t:m:x:S:n" OPT ; do
@@ -803,6 +547,8 @@ while getopts ":t:m:x:S:n" OPT ; do
 done
 shift $(( $OPTIND - 1 ))
 
+info "$PROGNAME started with args: $EARGS"
+
 # check for and persist MYSQL root password - unless forbidden
 if [[ -z "$DONT_SAVE_PASSWD" ]] ; then
 	persist_mysql_passwd
@@ -825,11 +571,12 @@ if [[ -z $TICKETNM ]] ; then
 fi
 
 # clean up any previous .pid files & processes for same mon<VERSION> script
-[[ -n "$(ls ${LOGDIR}/*_${STEMNAME}.pid 2>/dev/null)" ]] && kill -9 $(cat ${LOGDIR}/*_${STEMNAME}.pid) 2> /dev/null
-rm -f ${LOGDIR}/*_${STEMNAME}.pid 2> /dev/null
+[[ -n "$(ls ${LOGDIR}/${STEMNAME}.pid 2>/dev/null)" ]] && kill -9 $(cat ${LOGDIR}/${STEMNAME}.pid) 2> /dev/null
+rm -f ${LOGDIR}/${STEMNAME}.pid 2> /dev/null
 
 for i in ${!to_monitor_*}; do
 	${!i}			# run monitor (assumes will background itself)
 done
+echo -$$ > ${LOGDIR}/${STEMNAME}.pid	# all sub-processes are in same process group
 
-echo "kill monitors with \"kill -9 "$(cat ${LOGDIR}/*_${STEMNAME}.pid)"\""
+info "kill monitors with \"kill -9 "$(cat ${LOGDIR}/${STEMNAME}.pid)"\""
