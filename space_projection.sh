@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# $Id: space_projection.sh 1.3 2018-04-17 10:20:23 cmayer
+# $Id: space_projection.sh 1.4 2019-03-25 12:26:39 cmayer
 #
 # this script takes an inventory of the controller data, and projects
 # the disk space usage by the partitioned tables.   it assumes that
@@ -57,7 +57,7 @@ fi
 MIN=0
 
 eval `echo "select name,value from global_configuration where name like '%retention%';" | 
-	$MYSQL |
+	$MYSQL -c |
 	awk '
 	/metrics.min.retention.period/ { printf("MIN=%d\n",6*$2); }
 	/metrics.ten.min.retention.period/ { printf("TEN=%d\n",$2/2); }
