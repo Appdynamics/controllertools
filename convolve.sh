@@ -6,10 +6,9 @@
 # space management runs on the controller at a variable frequency 
 # by table interval on a fixed schedule. see next_space_management
 #
-# $Id: convolve.sh 2.9 2016-12-08 13:06:08 cmayer $
+# $Id: convolve.sh 3.0 2019-07-09 11:59:15 saradhip $
 
 errfile=/tmp/convolve.err
-appd=${APPD_ROOT:-/opt/AppDynamics/Controller}
 new_tables=false
 rename=false
 report=false
@@ -22,7 +21,6 @@ hiwatermark=0
 alltables=()
 use_alltables=false
 use_saas=false
-MYSQL_PASSWORD=${MYSQL_PASSWORD:-`cat $appd/db/.rootpw`}
 
 echo -n 'start convolving at ';
 echo `date +%d/%m/%Y\ %H:%M:%S`;
@@ -169,13 +167,19 @@ else
 		if [ -f $appd/db/.rootpw ] ; then
 			mysql_password=`cat $appd/db/.rootpw`
 		else
-			mysql_password=singcontroller
+				echo "this tool requires a readable db/.rootpw"
+				exit 1
 		fi
 	fi
+	
 	if [ -z "$mysql_port" ] ; then
 		mysql_port=3388
 	fi
-	connect="--user=root --password=$mysql_password --port=$mysql_port --protocol=TCP"
+# To suppress this message ion MySQL 5.7 --[Warning] Using a password on the command line interface can be insecure.
+	export MYSQL_PWD="$mysql_password"
+	connect="--user=root --port=$mysql_port --protocol=TCP"
+#	connect="--user=root --password=$mysql_password --port=$mysql_port --protocol=TCP"
+
 fi
 
 if [ ! -x $mysql ] ; then
