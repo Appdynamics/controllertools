@@ -1,8 +1,34 @@
 #!/bin/bash
-#
-# report on the state of a controller convolve that may or may not be running
-#
 # $Id: convolve_status.sh 1.1 2019-07-22 05:19:48 cmayer $
+#
+# convolve_status.sh is a tool that interrogates the state of convolution 
+# that may be running on a controller.
+#
+# for each of the tables that it knows about, it will report one of the following 3 lines:
+#
+# metricdata_min original 38 partitions
+#
+# 	this means that the table is not convolved and has the old primary key.  
+# 	there are 38 partitions.
+#
+# metricdata_min_agg_app done old exists
+#
+# 	this means that the table is convolved and 
+#	the old table still exists and may be dropped
+#
+# metricdata_ten_min working 38 of 38
+#
+# 	this means that the table is being convolved and is awaiting the rename step
+#
+# metricdata_ten_min_agg working 18 of 38
+#
+# 	this means that the table is being convolved and needs to be finished.
+#	the process may not be running, in which it needs to be restarted.  
+#	there probably needs to be a lock.
+# metricdata_ten_min_agg_app done
+#
+#	this means that the table is convolved and there is nothing to do.
+#
 
 appd=/opt/appdynamics/controller
 alltables=()
