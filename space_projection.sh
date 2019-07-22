@@ -29,7 +29,7 @@ for path in $(pwd -P) ${CANDIDATES[*]} ; do
 	cd $CONTROLLER_ROOT
 	if [ -x $path/HA/mysqlclient.sh ] ; then
 		CONTROLLER_ROOT=$path
-		MYSQL=$path/HA/mysqlclient.sh
+		MYSQL="$path/HA/mysqlclient.sh -c"
 		break
 	fi
 	if [ -x $path/bin/controller.sh ] ; then
@@ -57,7 +57,7 @@ fi
 MIN=0
 
 eval `echo "select name,value from global_configuration where name like '%retention%';" | 
-	$MYSQL -c |
+	$MYSQL |
 	awk '
 	/metrics.min.retention.period/ { printf("MIN=%d\n",6*$2); }
 	/metrics.ten.min.retention.period/ { printf("TEN=%d\n",$2/2); }
