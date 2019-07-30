@@ -8,6 +8,7 @@
 #
 # $Id: convolve.sh 3.0 2019-07-09 11:59:15 saradhip $
 
+appd=/opt/appdynamics/controller
 errfile=/tmp/convolve.err
 new_tables=false
 rename=false
@@ -22,6 +23,8 @@ alltables=()
 use_alltables=false
 use_saas=false
 
+lockdir=/tmp
+
 echo -n 'start convolving at ';
 echo `date +%d/%m/%Y\ %H:%M:%S`;
 
@@ -33,7 +36,6 @@ for time_dim in min ten_min hour ; do
 		alltables+=(metricdata_$time_dim$rollup_dim)
 	done
 done
-
 
 declare -a workers
 
@@ -122,12 +124,12 @@ while getopts "SAhTRvnfrta:c:P:" opt; do
 			;;
 		h)
 			usage
-			exit
+			exit 1
 			;;
     	\?)
 			echo "Invalid option: -$OPTARG"
 			usage
-			exit
+			exit 2
       		;;
   	esac
 done
@@ -145,7 +147,7 @@ fi
 if [ -z "$tables" ] ; then
 	echo no tables specified
 	usage
-	exit
+	exit 1
 fi
 
 #
@@ -168,7 +170,7 @@ else
 			mysql_password=`cat $appd/db/.rootpw`
 		else
 				echo "this tool requires a readable db/.rootpw"
-				exit 1
+				exit 3
 		fi
 	fi
 	
@@ -184,7 +186,7 @@ fi
 
 if [ ! -x $mysql ] ; then
 	echo "$mysql not executable"
-	exit
+	exit 4
 fi
 
 if [ ! -c $errfile ] ; then
@@ -308,6 +310,31 @@ function sql() {
 }
 
 #
+# are we the active node?
+#
+function assert_active() {
+	if sql "select value \
+		from global_configuration_local \
+		where name = \"appserver.mode\"" | grep -q -s active ; then
+		return 0
+	else
+		echo "convolve aborted - not active"
+		exit 9
+	fi
+}
+
+#
+# are we below 20GB of space
+#
+function assert_space() {
+	local space=$(df -m --output=avail $datadir | tail -1)
+	if [ $space -lt 20000 ] ; then
+		echo "convolve aborted - disk space $space too low"
+		exit 10
+	fi
+}
+
+#
 # return an index $2 in table $1
 #
 function if_index_exists() {
@@ -395,7 +422,7 @@ Linux)
 	;;
 *)
 	echo system `uname` unsupported
-	exit
+	exit 5
 	;;
 esac
 
@@ -451,7 +478,7 @@ function next_space_management()
 		;;
 	*)
 		echo "table $table not recognized"
-		exit
+		exit 6
 		;;
 	esac
 	# seconds
@@ -640,7 +667,7 @@ function partition_copy() {
 		echo "source and dest expression mismatch"
 		echo "src: $src $part $srcexpr"
 		echo "dest: dest $part $destexpr"
-		exit
+		exit 7
 	fi
 
 	src_last_time=`get_last_ts_min $src "$srcexpr"`
@@ -708,6 +735,9 @@ function partition_iterate() {
 
 	for part in $partitions ; do
 
+		assert_active
+		assert_space
+
 		if $report ; then
 			partition_report $src $dest $part
 		else
@@ -768,6 +798,22 @@ function convolve() {
 	local dest=fast_$1
 	local oldkey=`get_primary_key "$src"`
 	local newkey="$2"
+
+	#
+	# exit if there is a valid a per-table lock file
+	# else create it.
+	#
+	lockfile=$lockdir/convolvelock.$src
+	if [ -f $lockfile ] ; then
+		pid=$(cat $lockfile)
+		if [ -d /proc/$pid ] && \
+			awk '/^Name:/ {print $2}' < /proc/$pid/status | \
+			grep -w -s -q convolve.sh ; then
+			echo "convolve already running as process $pid"
+			exit 11
+		fi		
+	fi
+	echo $$ > $lockfile
 
 	hiwatermark=$avoid
 
@@ -900,7 +946,7 @@ function get_new_primary() {
 #
 if ! sql "show databases" | grep -q controller ; then
 	echo "mysql connection failed"
-	exit 1
+	exit 8
 fi
 
 #
@@ -928,4 +974,4 @@ if [ ! -c $errfile ] ; then
 	rm $errfile
 fi
 
-exit
+exit 0
