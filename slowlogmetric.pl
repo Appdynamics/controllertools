@@ -13,6 +13,9 @@
 #								ran Jul-2018
 # Made tz optional and added parse slowdown option for background monitoring
 #								ran Feb-2019
+# Added buffer number to stop OpenTSDB from choking on duplicates and help
+# identify group for each parallel insert
+#								ran Aug-2019
 
 use warnings;
 use strict;
