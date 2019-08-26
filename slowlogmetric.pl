@@ -52,9 +52,11 @@ my $insert_cmd2 = qr{.. .. LOAD DATA CONCURRENT LOCAL INFILE .dummy.txt. IGNORE 
 my $insert_cmd3 = qr{INSERT IGNORE INTO metricdata_min\s+SELECT};	# 4.2 syntax
 my $insert_cmd = qr/(?:$insert_cmd1)|(?:$insert_cmd2)|(?:$insert_cmd3)/;
 
-print "timestamp,avg_query_tm,avg_lock_tm,rows\n" if $csv_needed;
+print "timestamp,buffer,query_tm,lock_tm,rows\n" if $csv_needed;
 
 my $blocks_read = 0;
+my $same_buff = 15; 		# assume all rows within 15 secs of each other to be in same buffer if buffer_num <= 4
+my ($buffer_num, $lastsecs) = (0, 0);
 while (defined (my $block = <STDIN>) ) {
    ++$blocks_read;
    while ($block =~ m/# Query_time: (\S+)\s+Lock_time: (\S+).*?Rows_examined: (\d+).*?SET timestamp=(\d+);\s+${insert_cmd}/msgc) {
@@ -67,10 +69,17 @@ while (defined (my $block = <STDIN>) ) {
       my $datetm = sprintf("%4d-%02d-%02dT%02d:%02d:%02d", $struct_tm[5]+1900, $struct_tm[4]+1, $struct_tm[3], 
 							   $struct_tm[2], $struct_tm[1], $struct_tm[0]);
 
-      if ($csv_needed) {
-	 print "$datetm,$query_tm,$lock_tm,$rows_ex\n" if $query_tm > $thresh_secs;
+      if ((abs($esecs - $lastsecs) <= 15) && $buffer_num < 4) {
+         ++$buffer_num;		# measure time delay from first row in group hence no lastsecs update here
       } else {
-	 print "$datetm\tquery_tm=$query_tm\tlock_tm=$lock_tm\trows=$rows_ex\n" if $query_tm > $thresh_secs;
+         $buffer_num = 1;
+	 $lastsecs = $esecs;
+      }
+
+      if ($csv_needed) {
+	 print "$datetm,$buffer_num,$query_tm,$lock_tm,$rows_ex\n" if $query_tm > $thresh_secs;
+      } else {
+	 print "$datetm\tbuffer=$buffer_num\tquery_tm=$query_tm\tlock_tm=$lock_tm\trows=$rows_ex\n" if $query_tm > $thresh_secs;
       }
    }
    if ($pause_blocks > 0) {
