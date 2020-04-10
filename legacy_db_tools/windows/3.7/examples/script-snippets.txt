@@ -1,0 +1,61 @@
+
+----------------------------------------------------------------------------
+  Boilerplate
+----------------------------------------------------------------------------
+@echo off
+
+setlocal enabledelayedexpansion
+
+
+----------------------------------------------------------------------------
+  Test command succeeds
+----------------------------------------------------------------------------
+command...
+if errorlevel 1 (
+    echo some message
+    echo See: %LOG%...
+    exit /b 1
+)
+
+
+----------------------------------------------------------------------------
+  Read the product installation location from the install4j registry key
+----------------------------------------------------------------------------
+set REG_KEY=HKEY_LOCAL_MACHINE\SOFTWARE\ej-technologies\install4j\installations
+set REG_VAL=instdir8984-6429-2132-5090
+set CONTROLLER_HOME=
+for /f "usebackq skip=2 tokens=3*" %%i in (`reg query "%REG_KEY%" /v "%REG_VAL%"`) do (
+	set CONTROLLER_HOME=%%i
+)
+echo CONTROLLER_HOME=%CONTROLLER_HOME%
+
+
+----------------------------------------------------------------------------
+  3.7.x MySQL connection parameters (taken from controller.bat)
+----------------------------------------------------------------------------
+set MYSQL_PORT=
+for /f "tokens=2 delims==" %%i in ('FINDSTR /C:"DB_PORT=" "%CONTROLLER_HOME%\bin\controller.bat"') do (
+    set MYSQL_PORT=%%i
+)
+set MYSQL_PASSWD=
+for /f "tokens=2 delims==" %%i in ('FINDSTR /C:"mysql_root_user_password=" "%CONTROLLER_HOME%\bin\controller.bat"') do (
+    set MYSQL_PASSWD=%%i
+)
+set MYSQL_OPTS=-uroot -p%MYSQL_PASSWD% -P%MYSQL_PORT% -h127.0.0.1
+
+
+----------------------------------------------------------------------------
+  MySQL Results as variable
+----------------------------------------------------------------------------
+for /f "usebackq tokens=1" %%s in (`mysql %MYSQL_OPTS% -s -r -N -e "select ...;" controller`) do (
+	set <VAR>=%%s
+)
+
+
+----------------------------------------------------------------------------
+  Iterate over MySQL results
+----------------------------------------------------------------------------
+for /f "usebackq tokens=1-..." %%i in (`mysql %MYSQL_OPTS% -s -r -N -e "select ...;" controller`) do (
+	set <VAR1>=%%i
+	set <VAR2>=%%j
+)
