@@ -168,8 +168,8 @@ if [ $load == false ] ; then
 	echo "  -- dumping metadata"
 #	echo $mysqldump -v --single-transaction --result-file=$dest/metadata_dump.sql $connect $ignorelist controller >> $logfile
 #	$mysqldump -v --single-transaction --result-file=$dest/metadata_dump.sql $connect $ignorelist controller >> $logfile 2>&1
-	to_log < <(echo $mysqldump -v --single-transaction --routines --result-file=$dest/metadata_dump.sql $connect $ignorelist --databases controller $(cd $datadir; ls -d eum* mds* 2>/dev/null))
-        to_log < <($mysqldump -v --single-transaction --routines --result-file=$dest/metadata_dump.sql $connect $ignorelist --databases controller $(cd $datadir; ls -d eum* mds* 2>/dev/null) 2>&1)
+	to_log < <(echo $mysqldump -v --single-transaction --set-gtid-purged=off --routines --result-file=$dest/metadata_dump.sql $connect $ignorelist --databases controller $(cd $datadir; ls -d eum* mds* 2>/dev/null))
+        to_log < <($mysqldump -v --single-transaction --set-gtid-purged=off --routines --result-file=$dest/metadata_dump.sql $connect $ignorelist --databases controller $(cd $datadir; ls -d eum* mds* 2>/dev/null) 2>&1)
 	$COMPRESS $dest/metadata_dump.sql
 
 	if [ $dump_partitioned == true ] ; then
