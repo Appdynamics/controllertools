@@ -268,12 +268,13 @@ export -f deobfuscate
 # with help from:
 # http://stackoverflow.com/questions/1923435/how-do-i-echo-stars-when-reading-password-with-read
 function getpw { 
-        (( $# == 1 )) || err "Usage: ${FUNCNAME[0]} <variable name>"
-        local pwch inpw1 inpw2=' ' prompt; 
+        (( $# >= 1 )) || err "Usage: ${FUNCNAME[0]} <variable name> [<optional prompt text>]"
+        local pwch inpw1 inpw2=' ' prompt ptext
         
         ref=$1 
+	[[ -n "$2" ]] && ptext=$2 || ptext="MySQL root"
 	while [[ "$inpw1" != "$inpw2" ]] ; do
-		prompt="Enter MySQL root password: "
+		prompt="Enter ${ptext} password: "
 		inpw1=''
 		while IFS= read -p "$prompt" -r -s -n1 pwch ; do 
 			if [[ -z "$pwch" ]]; then 
@@ -300,10 +301,8 @@ function getpw {
 		[[ "$inpw1" == "$inpw2" ]] || echo "passwords unequal. Retry..." 1>&2
 	done
 
-	# indirect assignment (without local -n) needs eval. 
-	# This only works with global variables :-( Please use weird variable names to
-	# avoid namespace conflicts...
-        eval "${ref}=\$inpw1"            # assign passwd to parameter variable
+	# assign to variable whose name is 1st parameter
+	printf -v "$ref" %s "$inpw1"	# assign passwd to parameter variable
 }
 export -f getpw
 
@@ -312,19 +311,36 @@ export -f getpw
 function save_mysql_passwd {
 	(( $# == 1 )) || err "Usage: ${FUNCNAME[0]} <APPD_ROOT>"
 
-	local thisfn=${FUNCNAME[0]} APPD_ROOT=$1 
+	local thisfn=${FUNCNAME[0]} APPD_ROOT=$1 obf pw
 	[[ -d $1 ]] || err "$thisfn: \"$1\" is not APPD_ROOT"
 	local rootpw_obf="$APPD_ROOT/db/.rootpw.obf"
 
-	getpw __inpw1 || exit 1		# updates __inpw1 *ONLY* if global variable
-	obf=$(obfuscate "$__inpw1") || exit 1
+	getpw pw || exit 1		# updates pw variable
+	export dbpasswd=$pw
+	obf=$(obfuscate "$pw") || exit 1
 	echo $obf > $rootpw_obf || err "$thisfn: failed to save obfuscated passwd to $rootpw_obf"
 	chmod 600 $rootpw_obf || warn "$thisfn: failed to make $rootpw_obf readonly"
 }
 export -f save_mysql_passwd
 
+# helper function to persist obfuscated Glassfish asadmin password
+function save_asadmin_passwd {
+	(( $# == 1 )) || err "Usage: ${FUNCNAME[0]} <APPD_ROOT>"
+
+	local thisfn=${FUNCNAME[0]} APPD_ROOT=$1 pw obf
+	[[ -d $1 ]] || err "$thisfn: \"$1\" is not APPD_ROOT"
+	local asadmin_obf="$APPD_ROOT/.asadmin.obf"
+
+	getpw pw "Glassfish admin" || exit 1	# updates pw variable
+	export gfpasswd=$pw
+	obf=$(obfuscate "$pw") || exit 1
+	echo "$obf" > $asadmin_obf || err "$thisfn: failed to save obfuscated passwd to $asadmin_obf"
+	chmod 600 $asadmin_obf || warn "$thisfn: failed to make $asadmin_obf readonly"
+}
+export -f save_asadmin_passwd
+
 ###
-# get MySQL root password in a variety of ways.
+# get MySQL root password in a variety of ways, in order:
 # 1. respect MYSQL_ROOT_PASSWD if present; please pass down to sub-scripts. 
 #    Do NOT persist to disk.
 # 2. respect $APPD_ROOT/db/.rootpw if present
@@ -343,19 +359,22 @@ function get_mysql_passwd {
 	local rootpw="$APPD_ROOT/db/.rootpw" rootpw_obf="$APPD_ROOT/db/.rootpw.obf"
 	local mysqlpw="$APPD_ROOT/db/.mylogin.cnf"
 
-	if [[ -n "$MYSQL_ROOT_PASSWD" ]] ; then
-		echo $MYSQL_ROOT_PASSWD
-	elif [[ -s $rootpw && -r $rootpw ]] ; then 
-		echo $(<$rootpw)
-	elif [[ -s $rootpw_obf ]] ; then
-		IFS=$' ' read -r otype obf < $rootpw_obf
-		[[ -n "$otype" && -n "$obf" ]] || \
-			err "unable to read obfuscated passwd from $rootpw_obf"
-		clear=$(deobfuscate $otype $obf)
-		[[ -n "$clear" ]] || \
-			err "unable to deobfuscate passwd from $rootpw_obf" 2
+	if [[ -z "$clear" && -n "$MYSQL_ROOT_PASSWD" ]] ; then
+		clear=$MYSQL_ROOT_PASSWD
 		echo $clear
-	elif [[ -s $mysqlpw ]] ; then
+	fi
+	if [[ -z "$clear" && -s $rootpw && -r $rootpw ]] ; then 
+		clear=$(<$rootpw)
+		echo  $clear
+	fi
+	if [[ -z "$clear" && -s $rootpw_obf ]] ; then
+		IFS=$' ' read -r otype obf < $rootpw_obf
+		[[ -n "$otype" && -n "$obf" ]] || err "unable to read obfuscated passwd from $rootpw_obf"
+		clear=$(deobfuscate $otype $obf)
+		[[ -n "$clear" ]] || err "unable to deobfuscate passwd from $rootpw_obf" 2
+		echo $clear
+	fi
+	if [[ -z "$clear" && -s $mysqlpw ]] ; then
 	   	# sneaky way to get MySQL tool: mysql_config_editor to write its encrypted .mylogin.cnf
 	   	# to a place that is guaranteed to exist. Some clients have no writeable user home 
 	   	# directory !
@@ -364,11 +383,45 @@ function get_mysql_passwd {
 		clear=$(awk -F= '$1 ~ "word" {print $2}' <<< "$($APPD_ROOT/db/bin/my_print_defaults -s client)")
 		[[ -n "$clear" ]] || err "unable to get passwd from $mysqlpw" 3
 		echo $clear
-	else
+	fi
+	if [[ -z "$clear" ]] ; then
 		err "no password in MYSQL_ROOT_PASSWORD, db/.rootpw, db/.rootpw.obf or db/.mylogin.cnf please run save_mysql_passwd.sh" 3
 	fi
 }
 export -f get_mysql_passwd
+
+# get Glassfish asadmin password in a variety of ways, in order:
+# 1. $APPD_ROOT/setpwd.gf
+# 2. $APPD_ROOT/.passwordfile
+# 3. $APPD_ROOT/.asadmin.obf
+function get_asadmin_passwd {
+	(( $# == 0 )) || err "Usage: ${FUNCNAME[0]}"
+	if [[ -z "$APPD_ROOT" ]] ; then
+		[[ -f ./db/db.cnf ]] || err "unable to find ./db/db.cnf. Please run from controller install directory."
+		export APPD_ROOT="$(pwd -P)"
+	fi
+	local clear obf otype 
+	local asadmin_obf="$APPD_ROOT/.asadmin.obf" setpwd="$APPD_ROOT/setpwd.gf" pwdfile="$APPD_ROOT/.passwordfile"
+
+	if [[ -z "$clear" && -s "$setpwd" && -r "$setpwd" ]] ; then
+		clear=$(awk -F= '$1=="AS_ADMIN_NEWPASSWORD" {print $2}' $setpwd)
+		[[ -n "$clear" ]] && echo "$clear" || warn "unable to read Glassfish admin password from $setpwd"
+	fi
+	if [[ -z "$clear" && -s "$pwdfile" && -r "$pwdfile" ]] ; then
+		clear=$(awk -F= '$1=="AS_ADMIN_PASSWORD" {print $2}' $pwdfile)
+		[[ -n "$clear" ]] && echo "$clear" || warn "unable to read Glassfish admin password from $pwdfile"
+	fi
+	if [[ -z "$clear" && -s "$asadmin_obf" && -r "$asadmin_obf" ]] ; then
+		IFS=$' ' read -r otype obf < $asadmin_obf
+		[[ -n "$otype" && -n "$obf" ]] || err "unable to read obfuscated passwd from $asadmin_obf"
+		clear=$(deobfuscate $otype $obf)
+		[[ -n "$clear" ]] && echo "$clear" || warn "unable to deobfuscate passwd from $asadmin_obf" 2
+	fi
+	if [[ -z "$clear" ]] ; then
+		err "no Glassfish admin password found on disk" 3
+	fi
+}
+export -f get_asadmin_passwd
 
 # if MySQL root password not already available (ENV variable or on disk), then write it to disk in obfuscated form. 
 # Extension of script HA/save_mysql_passwd.sh
@@ -385,7 +438,7 @@ function persist_mysql_passwd {
 
 	dbpasswd=$(get_mysql_passwd 2> /dev/null)	# ignore return 1 and err msg if no passwd
 
-	if [[ -n "$dbpasswd" ]] ; then			# nothing to do ... just save & return
+	if [[ -n "$dbpasswd" ]] ; then			# nothing to do ... just export & return
 		export dbpasswd
 		return 0
 	fi
@@ -414,6 +467,24 @@ function persist_mysql_passwd {
 	fi
 }
 export -f persist_mysql_passwd
+
+function persist_asadmin_passwd {
+	if [[ -z "$APPD_ROOT" ]] ; then
+		[[ -f ./db/db.cnf ]] || err "unable to find ./db/db.cnf. Please run from controller install directory."
+		export APPD_ROOT="$(pwd -P)"
+	fi
+
+	gfpasswd=$(get_asadmin_passwd 2> /dev/null)	# ignore return 1 and err msg if no passwd
+
+	if [[ -n "$gfpasswd" ]]; then			# nothing more to do
+		export gfpasswd
+		return 0
+	fi
+
+	# given no Glassfish password was found on disk, now prompt user for it and then try to persist again
+	save_asadmin_passwd $APPD_ROOT
+}
+export -f persist_asadmin_passwd
 
 function get_dbport {
 	if [[ ! -f ./db/db.cnf ]] ; then
