@@ -178,7 +178,7 @@ function obf_ofa1 {
 	# use part of function name after last '_' as obfuscator type
 	echo "${thisfn##*_} "$obf
 }
-export -f obf_ofa1
+#export -f obf_ofa1
 
 # one of pair of low level functions {obf,deobf}_<some extention>
 # Expected to output to STDOUT:
@@ -196,7 +196,7 @@ function deobf_ofa1 {
 
 	echo $clear
 }
-export -f deobf_ofa1
+#export -f deobf_ofa1
 
 # one of pair of low level functions {obf,deobf}_<some extention>
 # Expected to output to STDOUT:
@@ -214,7 +214,7 @@ function obf_ofa2 {
 	# use part of function name after last '_' as obfuscator type
 	echo "${thisfn##*_} "$obf
 }
-export -f obf_ofa2
+#export -f obf_ofa2
 
 # one of pair of low level functions {obf,deobf}_<some extention>
 # Expected to output to STDOUT:
@@ -230,7 +230,7 @@ function deobf_ofa2 {
 
 	echo $clear
 }
-export -f deobf_ofa2
+#export -f deobf_ofa2
 
 # overall wrapper function for obfuscation 
 # Call as
@@ -254,7 +254,7 @@ function obfuscate {
 		*)		err "unknown obfuscation type \"$otype\"" ;;
 	esac
 }
-export -f obfuscate
+#export -f obfuscate
 
 # overall wrapper for various de-obfuscator functions
 # Call as:
@@ -269,7 +269,7 @@ function deobfuscate {
 		*)	err "unknown obfuscation type \"$otype\"" ;;
 	esac
 }
-export -f deobfuscate
+#export -f deobfuscate
 
 # with help from:
 # http://stackoverflow.com/questions/1923435/how-do-i-echo-stars-when-reading-password-with-read
@@ -310,7 +310,7 @@ function getpw {
 	# assign to variable whose name is 1st parameter
 	printf -v "$ref" %s "$inpw1"	# assign passwd to parameter variable
 }
-export -f getpw
+#export -f getpw
 
 # helper function to allow separate setting of passwd from command line.
 # Use this to persist an obfuscated version of the MySQL passwd to disk.
@@ -327,7 +327,7 @@ function save_mysql_passwd {
 	echo $obf > $rootpw_obf || err "$thisfn: failed to save obfuscated passwd to $rootpw_obf"
 	chmod 600 $rootpw_obf || warn "$thisfn: failed to make $rootpw_obf readonly"
 }
-export -f save_mysql_passwd
+#export -f save_mysql_passwd
 
 # helper function to persist obfuscated Glassfish asadmin password
 function save_asadmin_passwd {
@@ -343,7 +343,7 @@ function save_asadmin_passwd {
 	echo "$obf" > $asadmin_obf || err "$thisfn: failed to save obfuscated passwd to $asadmin_obf"
 	chmod 600 $asadmin_obf || warn "$thisfn: failed to make $asadmin_obf readonly"
 }
-export -f save_asadmin_passwd
+#export -f save_asadmin_passwd
 
 ###
 # get MySQL root password in a variety of ways, in order:
@@ -394,7 +394,7 @@ function get_mysql_passwd {
 		err "no password in MYSQL_ROOT_PASSWORD, db/.rootpw, db/.rootpw.obf or db/.mylogin.cnf please run save_mysql_passwd.sh" 3
 	fi
 }
-export -f get_mysql_passwd
+#export -f get_mysql_passwd
 
 # get Glassfish asadmin password in a variety of ways, in order:
 # 1. $APPD_ROOT/setpwd.gf
@@ -427,7 +427,7 @@ function get_asadmin_passwd {
 		err "no Glassfish admin password found on disk" 3
 	fi
 }
-export -f get_asadmin_passwd
+#export -f get_asadmin_passwd
 
 # if MySQL root password not already available (ENV variable or on disk), then write it to disk in obfuscated form. 
 # Extension of script HA/save_mysql_passwd.sh
@@ -472,7 +472,7 @@ function persist_mysql_passwd {
 		save_mysql_passwd $APPD_ROOT
 	fi
 }
-export -f persist_mysql_passwd
+#export -f persist_mysql_passwd
 
 function persist_asadmin_passwd {
 	if [[ -z "$APPD_ROOT" ]] ; then
@@ -490,7 +490,7 @@ function persist_asadmin_passwd {
 	# given no Glassfish password was found on disk, now prompt user for it and then try to persist again
 	save_asadmin_passwd $APPD_ROOT
 }
-export -f persist_asadmin_passwd
+#export -f persist_asadmin_passwd
 
 function get_dbport {
 	if [[ ! -f ./db/db.cnf ]] ; then
@@ -500,7 +500,7 @@ function get_dbport {
 
 	awk -F= '$1 =="port" {print $2}' ./db/db.cnf
 }
-export -f get_dbport
+#export -f get_dbport
 
 # simple, sometimes unreliable, wrapper for MySQL client
 # WARNINGS:
@@ -517,7 +517,7 @@ function mysqlclient {
 	fi
 	./db/bin/mysql -A "${CONNECT[@]}" controller
 }
-export -f mysqlclient
+#export -f mysqlclient
 
 # Observed client that has locally disabled Bash exported functions entirely by corrupting the ENV 
 # value for each function - likely an over reaction to Shellshock (see: https://dwheeler.com/essays/shellshock.html)
@@ -539,7 +539,7 @@ function setup_mysql_connect {
 	fi
 	export DBPARAMS
 }
-export -f setup_mysql_connect
+#export -f setup_mysql_connect
 ###################### End of embedded file: ../obfus_lib.sh
 
 
