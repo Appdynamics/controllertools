@@ -3,7 +3,7 @@
 #
 # generate dump & restore scripts as part of a controller MySQL rescue package for corrupt databases. 
 #
-# $Id: dumprestore-gen.sh 1.0 2020-09-03 19:59:50 robnav $
+# $Id: dumprestore-gen.sh 1.1 2020-09-03 20:15:16 robnav $
 
 PROGNAME=${0##*/}
 STEMNAME=${PROGNAME%%.*}
@@ -26,19 +26,16 @@ function err {
    local r="${c[2]} (f=${c[1]},l=${c[0]})"                       # where in code?
 
    echo "ERROR: $r failed: $1" 1>&2
-#   echo "[#|$(date +'%FT%T')|ERROR|$r failed: $1|#]" >> $MLOGF
 
    exit $exitcode
 }
 
 function warn {
    echo "WARN: $1" 1>&2
-#   echo "[#|$(date +'%FT%T')|WARN|$1|#]" >> $MLOGF
 }
 
 function info {
    echo "INFO: $1" 1>&2
-#   echo "[#|$(date +'%FT%T')|INFO|$1|#]" >> $MLOGF
 }
 
 function cleanup {
@@ -64,6 +61,7 @@ function call_curl {
 #  4        [neq] 4.5.6.1
 #  4.5      [neq] 4.5.6.1
 #  4.5      [neq] 4.5.6
+#  4.5      [neq] 4.5
 #  4.5.6.1  [neq] 4.5.6.5
 #  20.3.7.2 [eq] 20.3.7.2
 function compare_version_eq {
@@ -166,6 +164,7 @@ function unpack_to_data {
 	(( $# == 3 )) || err "Usage: ${FUNCNAME[0]} <archive> <archive_type> <tempdir>"
 	local archive=$1 atype=$2 tempdir=$3 retc
 
+	[[ "${archive:0:1}" == "/" ]] || err "code bug: archive parameter ($archive) needs to be absolute pathname"
 	mkdir -p $tempdir/tmp >/dev/null || { retc=$?; warn "unable to mkdir -p $tempdir/tmp ($retc)"; return 1; }
 	if [[ "$atype" == "zip" ]] ; then
 		( cd $tempdir/tmp; unzip "$archive" >/dev/null; ) || { retc=$?; warn "unable to unzip $archive ($retc)"; return 1; }
@@ -228,8 +227,6 @@ function get_data_from_aws {
 }
 
 # generalised way to convert a URL, directory or zip file reference into acceptable MySQL datadir
-# NOTE:
-# - no current way to determine if referred to datadir is for current platform or not (maybe case specific tests?)
 function get_data {
 	(( $# == 3 )) || err "Usage: ${FUNCNAME[0]} <platform> <data url, dir or zipfile> <tempdir>"
 	local platform=$1 dataref=$2 tempdir=$3 fname ldatadir retc matching_datadir
