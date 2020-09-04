@@ -3,6 +3,7 @@
 #
 # generate dump & restore scripts as part of a controller MySQL rescue package for corrupt databases. 
 #
+# $Id: dumprestore-gen.sh 1.0 2020-09-03 19:59:50 robnav $
 
 PROGNAME=${0##*/}
 STEMNAME=${PROGNAME%%.*}
