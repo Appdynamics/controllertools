@@ -2,7 +2,7 @@
 #
 # use this to perform a parallel dump or parallel load of a appdynamics controller database
 # 
-# $Id: controller_dbtool.sh 1.11 2017-07-19 13:18:48 rob.navarro $
+# $Id: controller_dbtool.sh 1.12 2020-08-29 15:52:50 robnav $
 
 # For ease of deployment, locally embed/include function library at build time
 FUNCLIB=dbfunctions.sh
@@ -168,8 +168,8 @@ if [ $load == false ] ; then
 	echo "  -- dumping metadata"
 #	echo $mysqldump -v --single-transaction --result-file=$dest/metadata_dump.sql $connect $ignorelist controller >> $logfile
 #	$mysqldump -v --single-transaction --result-file=$dest/metadata_dump.sql $connect $ignorelist controller >> $logfile 2>&1
-	to_log < <(echo $mysqldump -v --single-transaction --set-gtid-purged=off --routines --result-file=$dest/metadata_dump.sql $connect $ignorelist --databases controller $(cd $datadir; ls -d eum* mds* 2>/dev/null))
-        to_log < <($mysqldump -v --single-transaction --set-gtid-purged=off --routines --result-file=$dest/metadata_dump.sql $connect $ignorelist --databases controller $(cd $datadir; ls -d eum* mds* 2>/dev/null) 2>&1)
+	to_log < <(echo $mysqldump -v --single-transaction --skip-lock-tables --set-gtid-purged=off --routines --result-file=$dest/metadata_dump.sql $connect $ignorelist --databases controller $(cd $datadir; ls -d eum* mds* 2>/dev/null))
+        to_log < <($mysqldump -v --single-transaction --skip-lock-tables --set-gtid-purged=off --routines --result-file=$dest/metadata_dump.sql $connect $ignorelist --databases controller $(cd $datadir; ls -d eum* mds* 2>/dev/null) 2>&1)
 	$COMPRESS $dest/metadata_dump.sql
 
 	if [ $dump_partitioned == true ] ; then
