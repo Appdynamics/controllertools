@@ -21,3 +21,5 @@ was worst case.
 create_threadpools.sh: 
 	make saas-like thread pools
 
+dumprestore-gen.sh:
+	generate Windows metadata dump/restore program and often include a fresh db/data.zip also (completeness depends on other efforts)
