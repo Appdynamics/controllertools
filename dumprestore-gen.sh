@@ -3,7 +3,7 @@
 #
 # generate dump & restore scripts as part of a controller MySQL rescue package for corrupt databases. 
 #
-# $Id: dumprestore-gen.sh 1.1 2020-09-03 20:15:16 robnav $
+# $Id: dumprestore-gen.sh 1.2 2020-09-03 20:15:16 robnav $
 
 PROGNAME=${0##*/}
 STEMNAME=${PROGNAME%%.*}
@@ -18,6 +18,7 @@ DATA=
 DEBUG=
 TDIR=
 MATCHVERSION=
+SHOWMATCHES=false
 
 #  err "some message" [optional return code]
 function err {
@@ -217,7 +218,7 @@ function get_data_from_aws {
 		if (cd $tempdir; call_curl -O https://s3-us-west-1.amazonaws.com/appdynamics-cs-support-system/db/${other_platform}/data-${version}.zip || exit 1; ); then
 			matching_datadir=false
 		else
-			err "unable to find matching data-${version}.zip for any support platform, giving up"
+			err "unable to find matching data-${version}.zip for any support platform, giving up" 2
 		fi
 	fi
 
@@ -495,6 +496,7 @@ while getopts ":d:ulwv:Ds:" OPT ; do
                 D  ) DEBUG=true
                         ;;
                 s  ) MATCHVERSION=$OPTARG
+			SHOWMATCHES=true
                         ;;
                 :  ) err "$0: option '$OPTARG' requires a value"$'\n'"$USAGESTR"
                         ;;
@@ -507,14 +509,18 @@ shift $(( $OPTIND - 1 ))
 
 # check for valid arg combinations
 [[ -n "$PLATFORM" ]] || err "missing -w|-l plaform specification"$'\n'"$USAGESTR"
-[[ -n "$MATCHVERSION" ]] && { matching_versions "$PLATFORM" "$MATCHVERSION" || exit 1; exit 0; }
+[[ "$SHOWMATCHES" ]] && { matching_versions "$PLATFORM" "$MATCHVERSION" || exit 1; exit 0; }
 [[ -n "$VERSION" ]] && ( validate_version $VERSION  || err "Invalid version: $VERSION"$'\n'"$USAGESTR" )
 ( [[ -z "$VERSION" && -z "$DATA" ]] || [[ -n "$VERSION" && -n "$DATA" ]] ) && err "$USAGESTR"
 
 # fetch/pre-process datadir reference
 if [[ -n "$VERSION" ]]; then
-	response=$(get_data_from_aws "$VERSION" "$PLATFORM" "$TDIR") || exit 1
-	IFS=, read -r MATCHING_DATADIR DATADIR <<< "$response"          # unpack tuple response
+	if response=$(get_data_from_aws "$VERSION" "$PLATFORM" "$TDIR"); then
+		IFS=, read -r MATCHING_DATADIR DATADIR <<< "$response"          # unpack tuple response
+	else
+		retc=$?
+		(( retc == 1 )) && exit 1 || exit 2
+	fi
 fi
 
 if [[ -n "$DATA" ]]; then
