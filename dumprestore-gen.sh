@@ -509,7 +509,7 @@ shift $(( $OPTIND - 1 ))
 
 # check for valid arg combinations
 [[ -n "$PLATFORM" ]] || err "missing -w|-l plaform specification"$'\n'"$USAGESTR"
-[[ "$SHOWMATCHES" ]] && { matching_versions "$PLATFORM" "$MATCHVERSION" || exit 1; exit 0; }
+$SHOWMATCHES && { matching_versions "$PLATFORM" "$MATCHVERSION" || exit 1; exit 0; }
 [[ -n "$VERSION" ]] && ( validate_version $VERSION  || err "Invalid version: $VERSION"$'\n'"$USAGESTR" )
 ( [[ -z "$VERSION" && -z "$DATA" ]] || [[ -n "$VERSION" && -n "$DATA" ]] ) && err "$USAGESTR"
 
