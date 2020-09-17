@@ -51,7 +51,7 @@ sub usage {
 # Main body
 ############################################################################
 my %args;
-GetOptions(\%args, "tz=s", "metric=s", "host=s") or die usage();
+GetOptions(\%args, "tz=s", "metric=s", "host=s", "Loadid=s") or die usage();
 exists $args{tz} && exists $args{metric} || die usage();
 
 $ENV{TZ} = $args{tz};
@@ -60,6 +60,8 @@ POSIX::tzset();
 my $tsdbmetric = $args{metric};
 my $hoststr = "";
 $hoststr = "host=$args{host}" if exists $args{host};
+my $loadid = "";
+$loadid = "loadid=$args{Loadid}" if exists $args{Loadid};
 
 my $row_count = 0;
 my @col_header;
@@ -152,7 +154,7 @@ while (defined (my $row = <STDIN>) ) {
    for my $col ( keys %metric_cols ) {	# print out metrics only
       # throttle outputs to avoid OpenTSDB 'put: Please throttle writes: 10000 RPCs waiting on ' messages
       sleep 0.1 if $row_count % 150000 == 0;
-      print "put $tsdbmetric $epoch $row{ $col } col=$col$device$buffer$port$listener$node$zone$event$connuser$connhost $hoststr\n" if length($row{ $col });
+      print "put $tsdbmetric $epoch $row{ $col } col=$col$device$buffer$port$listener$node$zone$event$connuser$connhost $hoststr $loadid\n" if length($row{ $col });
       ++$row_count;
    }
 }
