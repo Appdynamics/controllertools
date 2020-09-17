@@ -18,7 +18,7 @@ perl numabuddyrefs_to_csv.pl < <(cat *numabu*.txt)
 
 # numastat is not currently converted
 
-perl ../../slowlogmetric.pl -c < <(cat *slowlog*.txt)
+perl slowlog_to_csv.pl < <(cat *slowlog*.txt)
 
 # statics is not currently converted
 
