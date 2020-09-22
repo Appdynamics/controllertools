@@ -23,7 +23,7 @@ DATACONV=~/github/controllertools/light_weight_server_monitor/dataconv
 PROGNAME=${0##*/}
 LOADIDFILE=/tmp/${PROGNAME}.loadid
 TSDB=~/opentsdb/opentsdb/build/tsdb
-USAGESTR="Usage: $PROGNAME -d <monitor data directory>	# load all monitor data therein
+USAGESTR="Usage: $PROGNAME -d <data dir1>,<d2>,<d3> 	# load all monitor data therein - comma separated directories
 	[-e]						# empty openTSDB of data for $METRIC
 	[-m	<mon1>,<mon2>]				# chosen monitors to load - comma separated
 	[-c	<dataconv directory>]			# where the conversion tools live
@@ -138,13 +138,27 @@ function delete_data {
 	fi
 }
 
+# encapsulate the way monX output files are identified given a LOADDIR and monitor name
+function list_mon_outputs {
+	(( $# == 2 )) || err "Usage: ${FUNCNAME[0]} <monitor> <loaddir vname>"
+	local mon=$1 loaddir="$2[@]" d f
+
+	for d in "${!loaddir}" ; do
+		for f in $(ls -1 "$d"/*_${mon}_*[0-9].txt 2>/dev/null); do
+			[[ -f "$f" ]] && echo "$f"
+		done 
+	done
+}
+
 # has monitor data been provided or not for current monitor?
+# ASSUMES:
+# - LOADDIR parameter is just the *name* of the array variable - will be indirectly referenced later
 function exists_data {
-	(( $# == 2 )) || err "Usage: ${FUNCNAME[0]} <monitor> <loaddir>"
+	(( $# == 2 )) || err "Usage: ${FUNCNAME[0]} <monitor> <loaddir vname>"
 	local mon=$1 loaddir=$2 
 	local -a files
 
-	files=($(ls -1 $loaddir/*_${mon}_*[0-9].txt 2>/dev/null))
+	files=($(list_mon_outputs "$mon" "$loaddir"))
 	(( ${#files[*]} > 0 )) && return 0 || return 1
 }
 
@@ -169,7 +183,7 @@ function get_loadid {
 	[[ -n "$val" ]] || { err "empty $loadidfile" 0; return 1; }
 	[[ $val =~ $pattern ]] || { err "invalid contents within $loadidfile" 0; return 1; }
 	echo "$(( val+1 ))" > $loadidfile || { err "unable to update $loadidfile" 0; return 1; }
-	echo "$val"
+	echo "L$val"
 }
 
 function remove_data {
@@ -186,12 +200,13 @@ function remove_data {
 # either fully load data for a given monitor or fail to load a single row for that monitor
 # ASSUMES:
 # - global associatve array MONS
+# - LOADDIR parameter is just the name of the array variable - will be indirectly referenced later
 # 
 function load_data {
-	(( $# == 6 )) || err "Usage: ${FUNCNAME[0]} <monitor name> <loaddir> <METRIC> <TSDBHOST> <TSDBPORT> <DATACONV>"
+	(( $# == 6 )) || err "Usage: ${FUNCNAME[0]} <monitor name> <loaddir vname> <METRIC> <TSDBHOST> <TSDBPORT> <DATACONV>"
 	local mon=$1 loaddir=$2 metric=$3 tsdbhost=$4 tsdbport=$5 dataconv=$6 
 	local start_secs end_secs tcmd cmd txt loadid
-	local -a files=($(ls -1 $loaddir/*_${mon}_*[0-9].txt 2>/dev/null))
+	local -a files=($(list_mon_outputs "$mon" "$loaddir"))
 
 	[[ -n "$mon" ]] || err "empty monitor arg"
 	[[ -n "$loaddir" ]] || err "empty loaddir arg"
@@ -208,13 +223,13 @@ function load_data {
 	start_secs=$(date +%s)
 	loadid=$(get_loadid "$LOADIDFILE") || return 1
 	info "starting load for $mon..."
-	(set -o pipefail; $cmd < <(cat ${files[*]}) | perl ${dataconv}/csv_to_tsdb.pl -tz America/Los_Angeles -m $metric -h $host -L "L$loadid" | pv | nc -w 15 $TSDBHOST $TSDBPORT) 
+	(set -o pipefail; $cmd < <(cat ${files[*]}) | perl ${dataconv}/csv_to_tsdb.pl -tz America/Los_Angeles -m $metric -h $host -L "$loadid" | pv | nc -w 15 $TSDBHOST $TSDBPORT) 
 	if (( $? == 0 )); then
 		end_secs=$(date +%s)
 		info "successfully loaded data for $mon monitor ($((end_secs-start_secs)) sec)"
 	else
 		warn "load of $mon monitor data failed."$'\n'"cleaning up its data remnants..."
-		remove_data "$metric" "L$loadid" "$TSDB" || warn "cleanup for $mon monitor failed. Suggest manual clean of entire openTSDB and then re-load"
+		remove_data "$metric" "$loadid" "$TSDB" || warn "cleanup for $mon monitor failed. Suggest manual clean of entire openTSDB and then re-load"
 		return 1
 	fi
 }
@@ -246,8 +261,12 @@ type pv &>/dev/null || err "pv must be installed"
 
 while getopts ":d:eDm:c:" OPT ; do
         case $OPT in
-                d  ) [[ -d "$OPTARG" ]] || err "invalid -d directory"$'\n'"$USAGESTR"
-			LOADDIR=$OPTARG
+                d  ) unset tLOADDIR; declare -a tLOADDIR
+			IFS=, read -a tLOADDIR <<< "$OPTARG"
+			for i in "${tLOADDIR[@]}"; do
+				[[ -d "$i" ]] && LOADDIR+=("$i") || warn "ignoring invalid directory: $i"
+			done
+			(( ${#LOADDIR[*]} > 0 )) || err "no valid -d directories"$'\n'"$USAGESTR"
                         ;;
                 e  ) EMPTY=true
                         ;;
@@ -285,8 +304,8 @@ fi
 AVAILABLE_MONS=($(available_monitors)) || exit 1
 
 for m in ${AVAILABLE_MONS[*]}; do
-	exists_data "$m" "$LOADDIR" || { EMPTY_MONS+=($m); warn "no data found for $m monitor...skipping"; continue; }	# skip if no data for this monitor
-	if load_data "$m" "$LOADDIR" "$METRIC" "$TSDBHOST" "$TSDBPORT" "$DATACONV"; then
+	exists_data "$m" "LOADDIR" || { EMPTY_MONS+=($m); warn "no data found for $m monitor...skipping"; continue; }	# skip if no data for this monitor
+	if load_data "$m" "LOADDIR" "$METRIC" "$TSDBHOST" "$TSDBPORT" "$DATACONV"; then
 		LOADED_MONS+=($m)
 	else
 		FAILED_MONS+=($m)
