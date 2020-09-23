@@ -190,7 +190,7 @@ function remove_data {
 	(( $# == 3 )) || err "Usage: ${FUNCNAME[0]} <METRIC> <LOADID> <TSDB>"
 	local metric=$1 loadid=$2 tsdb=$3
 
-	$tsdb scan --delete 1970/01/01-00:00:00 min $metric loadid="$loadid" &>/dev/null
+	$tsdb scan --delete 1970/01/01-00:00:00 min $metric Z="$loadid" &>/dev/null
 	if (( $? != 0 )); then
 		warn "unable to delete openTSDB data for $metric metric with loadid=$loadid"
 		return 1
@@ -229,7 +229,11 @@ function load_data {
 		info "successfully loaded data for $mon monitor ($((end_secs-start_secs)) sec)"
 	else
 		warn "load of $mon monitor data failed."$'\n'"cleaning up its data remnants..."
-		remove_data "$metric" "$loadid" "$TSDB" || warn "cleanup for $mon monitor failed. Suggest manual clean of entire openTSDB and then re-load"
+		if remove_data "$metric" "$loadid" "$TSDB" ; then
+			warn "cleanup for $mon monitor successful"
+		else
+			warn "cleanup for $mon monitor failed. Suggest manual clean of entire openTSDB and then re-load"
+		fi
 		return 1
 	fi
 }
