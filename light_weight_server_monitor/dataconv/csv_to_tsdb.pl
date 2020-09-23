@@ -61,7 +61,7 @@ my $tsdbmetric = $args{metric};
 my $hoststr = "";
 $hoststr = "host=$args{host}" if exists $args{host};
 my $loadid = "";
-$loadid = "loadid=$args{Loadid}" if exists $args{Loadid};
+$loadid = "Z=$args{Loadid}" if exists $args{Loadid};
 
 my $row_count = 0;
 my @col_header;
