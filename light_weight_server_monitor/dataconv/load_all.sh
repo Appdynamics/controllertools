@@ -278,10 +278,10 @@ while getopts ":d:eDm:c:" OPT ; do
 			IFS=, read -a tMONS <<< "$OPTARG"
 			iMONS=(${!MONS[*]})						# permissible monitor names
 			for i in ${tMONS[*]}; do
-				in_array iMONS "$i" && CHOSEN_MONS+=($i)
+				in_array iMONS "$i" && CHOSEN_MONS+=($i) || warn "unknown $i monitor name...ignoring"
 			done
 			unset tMONS iMONS
-			(( ${#CHOSEN_MONS[*]} > 0 )) || CHOSEN_MONS=(${MONS[*]})	# assume all required
+			(( ${#CHOSEN_MONS[*]} > 0 )) || CHOSEN_MONS=(${!MONS[*]})	# assume all required
                         ;;
                 D  ) DEBUG=true
                         ;;

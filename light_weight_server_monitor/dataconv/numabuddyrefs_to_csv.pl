@@ -13,14 +13,32 @@ sub usage {
    return "Usage: $0";
 }
 
+{
+   my ($minc, $maxc) = (9999999,0);                     # global variable private to check() i.e. C static variable
+   sub check {
+      my $nf = $_[0] // die "check: needs 1st arg";
+      my $row = $_[1] // die "check: needs 2nd arg";
+
+      $maxc = $nf if $nf > $maxc;
+      $minc = $nf if $nf < $minc;
+      die "ERROR: inconsistent column count (maxc=$maxc,minc=$minc) in row: $row" if $maxc != $minc;
+   }
+   sub init_check {
+      $minc = $_[0] // die "check: needs minc arg1";
+      $maxc = $_[1] // die "check: needs maxc arg2";
+   }
+}
+
 sub print_buddyinfo_csv {
    my $data = $_[0] // die "ERROR: @{[(caller(0))[3]]}: needs first string arg";
    my $datetime = $_[1] // die "ERROR: @{[(caller(0))[3]]}: needs 2nd datetime arg";
    local $/ = "\n";
 
+   init_check(9999999,0);						# reset col count expectation
    open( my $fh, "<", \$data ) || die "ERROR: @{[(caller(0))[3]]} unable to open scalar for reading: $!";
    print "timestamp,node,zone,order0,order1,order2,order3,order4,order5,order6,order7,order8,order9,order10\n";
    while ( defined( my $row = <$fh> ) ) {
+      check(scalar split(" ", $row), $row);				# sanity column count check
       my ($n,$z) = $row =~ m/^Node\s+(\S+),\s+zone\s+(\S+)\s+/gc;	# remember last match position for next match
       my @vals = $row =~ m/(\S+)/g;					# continue matching from last match position
       print "$datetime,$n,$z,@{[join(q{,},@vals)]}\n";
@@ -34,8 +52,10 @@ sub print_procvmstat_csv {
    my (%vals, @labels);
    local $/ = "\n";
 
+   init_check(9999999,0);						# reset col count expectation
    open( my $fh, "<", \$data ) || die "ERROR: @{[(caller(0))[3]]} unable to open scalar for reading: $!";
    while ( defined( my $row = <$fh> ) ) {
+      check(scalar split(" ", $row), $row);				# sanity column count check
       my ($k, $v) = $row =~ m/^(\S+)\s+(\S+)/;
       defined $k && defined $v || die "ERROR: @{[(caller(0))[3]]}: unable to find key,value pairs within: $row";
       push @labels, $k;
@@ -53,7 +73,7 @@ sub print_numastat_csv {
    my ($nodesuncounted, $numarows) = (1, 0);
    local $/ = "\n";
 
-
+   init_check(9999999,0);						# reset col count expectation
    open( my $fh, "<", \$data ) || die "ERROR: @{[(caller(0))[3]]} unable to open scalar for reading: $!";
    while ( defined( my $row = <$fh> ) ) {
       next if $row =~ m/^\s*$/;
@@ -74,6 +94,7 @@ sub print_numastat_csv {
       } else {					# current row is a pure NUMA hit statistic - so leave label alone
          push @numalabels, $l;
       }
+      check(scalar split(" ", $row), $row);				# sanity column count check
       my @v = $row =~ m/(\d+)/g;
       defined $l || die "ERROR: undefined label for numastat block at $datetime in row: $row";
       @vals{ map { "${_} $l" } @nodes } = @v[0..$#nodes];

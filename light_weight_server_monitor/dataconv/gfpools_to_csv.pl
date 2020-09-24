@@ -13,6 +13,22 @@ sub usage {
    return "Usage: $0";
 }
 
+{
+   my ($minc, $maxc) = (9999999,0);                     # global variable private to check() i.e. C static variable
+   sub check {
+      my $nf = $_[0] // die "check: needs 1st arg";
+      my $row = $_[1] // die "check: needs 2nd arg";
+   
+      $maxc = $nf if $nf > $maxc;
+      $minc = $nf if $nf < $minc;
+      die "ERROR: inconsistent column count (maxc=$maxc,minc=$minc) in row: $row" if $maxc != $minc;
+   }
+   sub init_check {
+      $minc = $_[0] // die "check: needs minc arg1";
+      $maxc = $_[1] // die "check: needs maxc arg2";
+   }
+}
+
 ############################################################################
 # Main body
 ############################################################################
@@ -27,6 +43,8 @@ while (defined (my $block = <STDIN>)) {
    for my $row ( split(/^/,$block) ) {
       next if $row =~ m/^\s*$/;
       next if $row =~ m/^#section/;
+      init_check(9999999,0) if ($row =~ m/(?:timestamp,)|(?:,timestamp)/i); 	# assume that this row is a header and possibly start of new sequence of rows
+      check(scalar split(",", $row),$row);		# sanity check else die
       print $row;
    }
 }

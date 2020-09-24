@@ -13,6 +13,18 @@ sub usage {
    return "Usage: $0 [-u <comma separated unit>]		# output as CSV\n";
 }
 
+{
+   my ($minc, $maxc) = (9999999,0);                     # global variable private to check() i.e. C static variable
+   sub check {
+      my $nf = $_[0] // die "check: needs 1st arg";
+      my $row = $_[1] // die "check: needs 2nd arg";
+
+      $maxc = $nf if $nf > $maxc; 
+      $minc = $nf if $nf < $minc;
+      die "ERROR: inconsistent column count (maxc=$maxc,minc=$minc) in row: $row" if $maxc != $minc;
+   }
+}  
+
 ############################################################################
 # Main body
 ############################################################################
@@ -23,7 +35,8 @@ my ($gf_rss, $gf_vsz, $gf_swap, $mysql_rss, $mysql_vsz, $mysql_swap, $cols);
 $cols = 3; 			# assume input comes from mon30 or later initially...
 my $firstrow = 1;
 while ( defined( my $row = <STDIN> ) ) {
-   $row =~ s/\015?\012/\n/g;         # normalise Windows CRLF to just LF
+   $row =~ s/\015?\012/\n/g;         			# normalise Windows CRLF to just LF
+   check(scalar split(" ", $row), $row);		# sanity check else die
    # break following into 3 separate matches to prevent one mis-match causing all others to not match either
    my ($gf) = $row =~ m/^gf_rss_[^=]+=(\S+)\s+mysql_rss/;	
    my ($mysql) = $row =~ m/\s+mysql_rss_[^=]+=(\S+)\s/;

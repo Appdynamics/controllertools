@@ -16,7 +16,8 @@ sub usage {
 # Main body
 ############################################################################
 
-my (%array, $atrow1, @labels, @values);
+my (%array, $atrow1, @labels, @values, $nf);
+my ($minc, $maxc) = (9999999, 0);
 
 $atrow1 = 1;
 while ( defined( my $row = <STDIN> ) ) {
@@ -38,6 +39,12 @@ while ( defined( my $row = <STDIN> ) ) {
 
       $atrow1 = 0;		# avoid this block in future
    }
+   
+   # column count based error check
+   $nf = scalar @values;
+   $maxc = $nf if $nf > $maxc;
+   $minc = $nf if $nf < $minc;
+   die "ERROR: inconsistent column count (maxc=$maxc,minc=$minc) in row $." if $maxc != $minc;
 
    print "@{[join(',',@values)]}\n";
 }

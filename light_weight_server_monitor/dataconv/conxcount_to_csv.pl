@@ -24,6 +24,18 @@ sub usage {
    return "Usage: $0            # output as CSV\n";
 }
 
+{
+   my ($minc, $maxc) = (9999999,0);                     # global variable private to check() i.e. C static variable
+   sub check {
+      my $nf = $_[0] // die "check: needs 1st arg";
+      my $row = $_[1] // die "check: needs 2nd arg";
+
+      $maxc = $nf if $nf > $maxc;
+      $minc = $nf if $nf < $minc;
+      die "ERROR: inconsistent column count (maxc=$maxc,minc=$minc) in row: $row" if $maxc != $minc;
+   }
+}
+
 ############################################################################
 # Main body
 ############################################################################
@@ -35,6 +47,9 @@ while (defined( my $row = <STDIN> )) {
    $row =~ s/\015?\012/\n/g;				# normalise Windows CRLF to just LF
    my ($svals,$ts) = $row =~ m/^([^\t]+)\s+(\S+)$/;	# grab TS
    defined $svals && defined $ts or die "unable to parse row: $row";
+   die "invalid datetime found as last field of: $row" unless $ts =~ m/^\d\d\d\d-\d\d-\d\dT/;
+
+   check(scalar split(" ", $row), $row);			# sanity check else die
 
    my @this_labels = map { my ($l,undef)=split(/=/,$_); $l } split(/,/, $svals); # excluding TS
    my @this_vals = map { my (undef,$v)=split(/=/,$_); $v } split(/,/, $svals); # excluding TS

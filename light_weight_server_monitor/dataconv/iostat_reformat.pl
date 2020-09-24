@@ -90,6 +90,18 @@ sub mkdatetime {
 						$struct_tm[1]);
 }
 
+{
+   my ($minc, $maxc) = (9999999,0);			# global variable private to check() i.e. C static variable
+   sub check {
+      my $nf = $_[0] // die "check: needs 1st arg";
+      my $row = $_[1] // die "check: needs 2nd arg";
+   
+      $maxc = $nf if $nf > $maxc;
+      $minc = $nf if $nf < $minc;
+      die "ERROR: inconsistent column count (maxc=$maxc,minc=$minc) in row: $row" if $maxc != $minc;
+   }
+}
+
 ############################################################################
 # Main body
 ############################################################################
@@ -128,6 +140,7 @@ if ($ncols == 7) {			# assume blocks headed by 'MM/DD/YY[YY] HH:MM:SS'
 
 	 while ($block =~ m/\G((?:sd|fi|nv).*)\s/mgc) {
 	    my $device_stats = $1;
+            check(scalar split(" ", $device_stats), $device_stats);
 	    my $row = "$out_datetime\t$device_stats\t$cpu_stats";
 	    $row = join(",", map { my $c = $_; $c =~ s/^\w+=//; $c } split(" ", $row)) if $cdel;
 	    print "$row\n";
@@ -173,6 +186,7 @@ if ($ncols == 7) {			# assume blocks headed by 'MM/DD/YY[YY] HH:MM:SS'
 
 	 while ($block =~ m/\G((?:sd|fi|nv).*)\s/mgc) {
 	    my $device_stats = $1;
+            check(scalar split(" ", $device_stats), $device_stats);
 	    my $row = "$out_datetime\t$device_stats\t$cpu_stats";
 	    $row = join(",", map { my $c = $_; $c =~ s/^\w+=//; $c } split(" ", $row)) if $cdel;
 #	    $row = join(",", map { $_ =~ s/^\w+=//r } split(" ", $row)) if $cdel;
