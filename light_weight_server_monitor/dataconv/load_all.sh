@@ -43,6 +43,7 @@ declare -A MONS=(
 	      [gfpools]="perl gfpools_to_csv.pl"
 	       [procio]=""				# not converted to CSV yet
 )
+declare -A HOSTS=()
 CHOSEN_MONS=()
 FAILEDMONS=()
 EMPTY_MONS=()
@@ -139,12 +140,54 @@ function delete_data {
 }
 
 # encapsulate the way monX output files are identified given a LOADDIR and monitor name
+function monx_file {
+	(( $# ==2 )) || err "Usage: ${FUNCNAME[0]} <monitor> <loaddir>"
+	local mon=$1 dir="$2"
+
+	ls -1 "$dir"/*_${mon}_*[0-9].txt 2>/dev/null
+	return 0
+}
+
+# helper function to assign to parameter array useful hostname from each monX data file that looks like:
+# 214903_iostat_abcdef000003700.intranet.mycompany.com_1593031296.txt
+function get_host {
+	(( $# == 1 )) || err "Usage: ${FUNCNAME[0]} <monX filename>"
+	local fname=$1 thost fhost
+
+	thost=${fname%_*}	# strip trailing _1593031296.txt
+	fhost=${thost##*_}	# strip leading 214903_iostat_
+	echo ${fhost%%.*}	# strip trailing .intranet.mycompany.com
+}
+
+#
+# dertermine all hostnames that contributed monX data within LOADDIR
+# Update associative array named by 3 parameter
+# e.g. hosts[$h]=$h <--- this permits easy de-dup and listing
+function record_hosts {
+	(( $# == 3 )) || err "Usage: ${FUNCNAME[0]} <monitor> <loaddir vname> <hosts vname>"
+	local mon=$1 loaddir="$2[@]" d f h
+	local -n hosts=$3
+
+	for d in "${!loaddir}" ; do
+		for f in $(monx_file "$mon" "$d"); do
+			if [[ -f "$f" ]]; then
+				h=$(get_host "$f") || exit 1
+				h=${h// /_}			# replace any spaces in hostname with '_'
+				hosts[$h]=$h		# update associative array parameter
+			fi
+		done 
+	done
+}
+
+# simply list all found monX files
+# ALSO:
+# - ensure file list has no dups
 function list_mon_outputs {
 	(( $# == 2 )) || err "Usage: ${FUNCNAME[0]} <monitor> <loaddir vname>"
 	local mon=$1 loaddir="$2[@]" d f
 
 	for d in "${!loaddir}" ; do
-		for f in $(ls -1 "$d"/*_${mon}_*[0-9].txt 2>/dev/null); do
+		for f in $(monx_file "$mon" "$d"); do
 			[[ -f "$f" ]] && echo "$f"
 		done 
 	done
@@ -155,22 +198,11 @@ function list_mon_outputs {
 # - LOADDIR parameter is just the *name* of the array variable - will be indirectly referenced later
 function exists_data {
 	(( $# == 2 )) || err "Usage: ${FUNCNAME[0]} <monitor> <loaddir vname>"
-	local mon=$1 loaddir=$2 
+	local mon=$1 loaddir_vname=$2
 	local -a files
 
-	files=($(list_mon_outputs "$mon" "$loaddir"))
+	files=($(list_mon_outputs "$mon" "$loaddir_vname"))
 	(( ${#files[*]} > 0 )) && return 0 || return 1
-}
-
-# helper function to get a useful hostname from monX data file that looks like:
-# 214903_iostat_abcdef000003700.intranet.mycompany.com_1593031296.txt
-function get_host {
-	(( $# == 1 )) || err "Usage: ${FUNCNAME[0]} <monX filename>"
-	local fname=$1 thost fhost
-
-	thost=${fname%_*}	# strip trailing _1593031296.txt
-	fhost=${thost##*_}	# strip leading 214903_iostat_
-	echo ${fhost%%.*}	# strip trailing .intranet.mycompany.com
 }
 
 # helper function to return a low cardinality but unique value per openTSDB monitor load that can be used to wipe out
@@ -203,10 +235,10 @@ function remove_data {
 # - LOADDIR parameter is just the name of the array variable - will be indirectly referenced later
 # 
 function load_data {
-	(( $# == 6 )) || err "Usage: ${FUNCNAME[0]} <monitor name> <loaddir vname> <METRIC> <TSDBHOST> <TSDBPORT> <DATACONV>"
-	local mon=$1 loaddir=$2 metric=$3 tsdbhost=$4 tsdbport=$5 dataconv=$6 
-	local start_secs end_secs tcmd cmd txt loadid
-	local -a files=($(list_mon_outputs "$mon" "$loaddir"))
+	(( $# == 7 )) || err "Usage: ${FUNCNAME[0]} <monitor name> <loaddir vname> <METRIC> <TSDBHOST> <TSDBPORT> <DATACONV> <HOSTS vname>"
+	local mon=$1 loaddir="$2[@]" metric=$3 tsdbhost=$4 tsdbport=$5 dataconv=$6 
+	local -n hosts=$7
+	local start_secs end_secs tcmd cmd txt loadid host d h f
 
 	[[ -n "$mon" ]] || err "empty monitor arg"
 	[[ -n "$loaddir" ]] || err "empty loaddir arg"
@@ -214,28 +246,43 @@ function load_data {
 	[[ -n "$tsdbhost" ]] ||	err "empty tsdbhost arg"
 	[[ -n "$tsdbport" ]] || err "empty tsdbport arg"
 	[[ -n "$dataconv" ]] || err "empty dataconv arg"
-	host=$(get_host ${files[0]}) || return 1
-	[[ -n "$host" ]] || { warn "empty hostname returned from get_host()"; return 1; }
+
+	for h in ${hosts[*]}; do
+		local -A $h
+	done
+	for d in "${!loaddir}" ; do
+		for f in $(monx_file "$mon" "$d"); do
+			if [[ -f "$f" ]] ; then
+				h=$(get_host "$f") || exit 1		# determine hostname that supplied this file
+				h=${h// /_}				# replace any spaces in hostname with '_'
+				printf -v "$h[${f##*/}]" %s "$f"	# save & de-dup filename to hostname specific associative array
+			fi
+		done 
+	done
+
 	tcmd=${MONS[$mon]}
 	cmd="${tcmd%% *} ${dataconv}/${tcmd#* }"		# insert correct path to conversion tools
 	[[ -n "$cmd" ]] || { warn "unexpected empty conversion command for $mon monitor"; return 1; }
 
 	start_secs=$(date +%s)
-	loadid=$(get_loadid "$LOADIDFILE") || return 1
 	info "starting load for $mon..."
-	(set -o pipefail; $cmd < <(cat ${files[*]}) | perl ${dataconv}/csv_to_tsdb.pl -tz America/Los_Angeles -m $metric -h $host -L "$loadid" | pv | nc -w 15 $TSDBHOST $TSDBPORT) 
-	if (( $? == 0 )); then
-		end_secs=$(date +%s)
-		info "successfully loaded data for $mon monitor ($((end_secs-start_secs)) sec)"
-	else
-		warn "load of $mon monitor data failed."$'\n'"cleaning up its data remnants..."
-		if remove_data "$metric" "$loadid" "$TSDB" ; then
-			warn "cleanup for $mon monitor successful"
+	for host in ${hosts[*]} ; do				# separate load per hostname to support different labelling for each
+		loadid=$(get_loadid "$LOADIDFILE") || return 1	
+		h="$host[@]"					# setup trick to enable cat "${!h}" <-- which works for filenames with spaces
+		(set -o pipefail; $cmd < <(cat "${!h}") | perl ${dataconv}/csv_to_tsdb.pl -tz America/Los_Angeles -m "$metric" -h "$host" -L "$loadid" | pv -f | nc -w 15 $TSDBHOST $TSDBPORT) 
+		if (( $? == 0 )); then
+			end_secs=$(date +%s)
+			info "successfully loaded data for $mon monitor from $host ($((end_secs-start_secs)) sec)"
 		else
-			warn "cleanup for $mon monitor failed. Suggest manual clean of entire openTSDB and then re-load"
+			warn "load of $mon monitor data from $host failed."$'\n'"cleaning up its data remnants..."
+			if remove_data "$metric" "$loadid" "$TSDB" ; then
+				warn "cleanup for $mon monitor successful"
+			else
+				warn "cleanup for $mon monitor from $host failed. Suggest manual clean of entire openTSDB and then re-load"
+			fi
+			return 1
 		fi
-		return 1
-	fi
+	done
 }
 
 # helper function to check whether 1st arg arrayname contains 2nd arg value or not
@@ -268,7 +315,8 @@ while getopts ":d:eDm:c:" OPT ; do
                 d  ) unset tLOADDIR; declare -a tLOADDIR
 			IFS=, read -a tLOADDIR <<< "$OPTARG"
 			for i in "${tLOADDIR[@]}"; do
-				[[ -d "$i" ]] && LOADDIR+=("$i") || warn "ignoring invalid directory: $i"
+				# permit directory names OR monX data file names that then imply their directory
+				[[ -d "$i" ]] && LOADDIR+=("$i") || { tDIR=$(dirname "$i") && [[ -d "$tDIR" ]] && LOADDIR+=("$tDIR"); } || warn "ignoring invalid directory: $i"
 			done
 			(( ${#LOADDIR[*]} > 0 )) || err "no valid -d directories"$'\n'"$USAGESTR"
                         ;;
@@ -309,7 +357,8 @@ AVAILABLE_MONS=($(available_monitors)) || exit 1
 
 for m in ${AVAILABLE_MONS[*]}; do
 	exists_data "$m" "LOADDIR" || { EMPTY_MONS+=($m); warn "no data found for $m monitor...skipping"; continue; }	# skip if no data for this monitor
-	if load_data "$m" "LOADDIR" "$METRIC" "$TSDBHOST" "$TSDBPORT" "$DATACONV"; then
+	unset HOSTS && declare -A HOSTS && record_hosts "$m" "LOADDIR" "HOSTS" || { FAILED_MONS+=($m); warn "unable to record hostnames for $m...skipping"; continue; }
+	if load_data "$m" "LOADDIR" "$METRIC" "$TSDBHOST" "$TSDBPORT" "$DATACONV" "HOSTS"; then
 		LOADED_MONS+=($m)
 	else
 		FAILED_MONS+=($m)
