@@ -129,6 +129,7 @@ function delete_data {
 		[[ "$m" == "$metric" ]] || continue
 		info "emptying data from openTSDB for $m metric..."
 		$tsdb scan --delete 1970/01/01-00:00:00 min $m &>/dev/null || errc=1
+		info "removed all data from openTSDB for $m metric."
 	done
 	if (( errc == 0 )); then
 		# reset the loadid to keep cardinality small and openTSDB happier
@@ -229,6 +230,28 @@ function remove_data {
 	fi
 }
 
+# helper function to get byte size of input file
+function get_size {
+	(( $# == 1 )) || err "Usage: ${FUNCNAME[0]} <fname>"
+	local fname=$1
+
+	awk '{print $5}' <(ls -n "$fname")
+}
+
+# helper function to create a unique value per data file to assist in de-duping the data to be loaded
+# current approach is to output:
+#  <md5sum>:<size of file in bytes>
+function unique_name {
+	(( $# == 1 )) || err "Usage: ${FUNCNAME[0]} <fname>"
+        local fname=$1 sz chksum
+
+	chksum=$(awk '{print $1}' <(md5sum $fname)) || return 1
+	[[ -n "$chksum" ]] || { warn "{FUNCNAME[0]}: md5sum empty"; return 1; }
+	sz=$(get_size "$fname") || return 1
+
+	echo "${chksum}:${sz}"
+}
+
 # either fully load data for a given monitor or fail to load a single row for that monitor
 # ASSUMES:
 # - global associatve array MONS
@@ -238,7 +261,7 @@ function load_data {
 	(( $# == 7 )) || err "Usage: ${FUNCNAME[0]} <monitor name> <loaddir vname> <METRIC> <TSDBHOST> <TSDBPORT> <DATACONV> <HOSTS vname>"
 	local mon=$1 loaddir="$2[@]" metric=$3 tsdbhost=$4 tsdbport=$5 dataconv=$6 
 	local -n hosts=$7
-	local start_secs end_secs tcmd cmd txt loadid host d h f
+	local start_secs end_secs tcmd cmd txt loadid host d h f uniqnm
 
 	[[ -n "$mon" ]] || err "empty monitor arg"
 	[[ -n "$loaddir" ]] || err "empty loaddir arg"
@@ -255,7 +278,8 @@ function load_data {
 			if [[ -f "$f" ]] ; then
 				h=$(get_host "$f") || exit 1		# determine hostname that supplied this file
 				h=${h// /_}				# replace any spaces in hostname with '_'
-				printf -v "$h[${f##*/}]" %s "$f"	# save & de-dup filename to hostname specific associative array
+				uniqnm=$(unique_name "$f") || exit 1		# use filesize to help de-dup filename list
+				printf -v "$h[${uniqnm}]" %s "$f"	# save & de-dup filename to hostname specific associative array
 			fi
 		done 
 	done
