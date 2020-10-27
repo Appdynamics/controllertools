@@ -141,6 +141,7 @@ function delete_data {
 }
 
 # encapsulate the way monX output files are identified given a LOADDIR and monitor name
+# NOTE: this function can return multiple newline separated rows that each contain spaces therein
 function monx_file {
 	(( $# ==2 )) || err "Usage: ${FUNCNAME[0]} <monitor> <loaddir>"
 	local mon=$1 dir="$2"
@@ -166,16 +167,18 @@ function get_host {
 # e.g. hosts[$h]=$h <--- this permits easy de-dup and listing
 function record_hosts {
 	(( $# == 3 )) || err "Usage: ${FUNCNAME[0]} <monitor> <loaddir vname> <hosts vname>"
-	local mon=$1 loaddir="$2[@]" d f h
+	local mon=$1 loaddir="$2[@]" d f h rows
 	local -n hosts=$3
 
 	for d in "${!loaddir}" ; do
-		for f in $(monx_file "$mon" "$d"); do
-			if [[ -f "$f" ]]; then
-				h=$(get_host "$f") || exit 1
-				h=${h// /_}			# replace any spaces in hostname with '_'
-				hosts[$h]=$h		# update associative array parameter
-			fi
+		for rows in "$(monx_file "$mon" "$d")"; do
+			while IFS= read -r f; do
+				if [[ -f "$f" ]]; then
+					h=$(get_host "$f") || exit 1
+					h=${h// /_}			# replace any spaces in hostname with '_'
+					hosts[$h]=$h			# update associative array parameter
+				fi
+			done <<< "$rows"
 		done 
 	done
 }
@@ -185,11 +188,13 @@ function record_hosts {
 # - ensure file list has no dups
 function list_mon_outputs {
 	(( $# == 2 )) || err "Usage: ${FUNCNAME[0]} <monitor> <loaddir vname>"
-	local mon=$1 loaddir="$2[@]" d f
+	local mon=$1 loaddir="$2[@]" d f rows
 
 	for d in "${!loaddir}" ; do
-		for f in $(monx_file "$mon" "$d"); do
-			[[ -f "$f" ]] && echo "$f"
+		for rows in "$(monx_file "$mon" "$d")"; do
+			while IFS= read -r f; do
+				[[ -f "$f" ]] && echo "$f"
+			done <<< "$rows"
 		done 
 	done
 }
@@ -243,9 +248,9 @@ function get_size {
 #  <md5sum>:<size of file in bytes>
 function unique_name {
 	(( $# == 1 )) || err "Usage: ${FUNCNAME[0]} <fname>"
-        local fname=$1 sz chksum
+        local fname="$1" sz chksum
 
-	chksum=$(awk '{print $1}' <(md5sum $fname)) || return 1
+	chksum=$(awk '{print $1}' <(md5sum "$fname")) || return 1
 	[[ -n "$chksum" ]] || { warn "{FUNCNAME[0]}: md5sum empty"; return 1; }
 	sz=$(get_size "$fname") || return 1
 
@@ -261,7 +266,7 @@ function load_data {
 	(( $# == 7 )) || err "Usage: ${FUNCNAME[0]} <monitor name> <loaddir vname> <METRIC> <TSDBHOST> <TSDBPORT> <DATACONV> <HOSTS vname>"
 	local mon=$1 loaddir="$2[@]" metric=$3 tsdbhost=$4 tsdbport=$5 dataconv=$6 
 	local -n hosts=$7
-	local start_secs end_secs tcmd cmd txt loadid host d h f uniqnm
+	local start_secs end_secs tcmd cmd txt loadid host d h f uniqnm rows
 
 	[[ -n "$mon" ]] || err "empty monitor arg"
 	[[ -n "$loaddir" ]] || err "empty loaddir arg"
@@ -274,13 +279,15 @@ function load_data {
 		local -A $h
 	done
 	for d in "${!loaddir}" ; do
-		for f in $(monx_file "$mon" "$d"); do
-			if [[ -f "$f" ]] ; then
-				h=$(get_host "$f") || exit 1		# determine hostname that supplied this file
-				h=${h// /_}				# replace any spaces in hostname with '_'
-				uniqnm=$(unique_name "$f") || exit 1		# use filesize to help de-dup filename list
-				printf -v "$h[${uniqnm}]" %s "$f"	# save & de-dup filename to hostname specific associative array
-			fi
+		for rows in "$(monx_file "$mon" "$d")"; do
+			while IFS= read -r f; do
+				if [[ -f "$f" ]] ; then
+					h=$(get_host "$f") || exit 1		# determine hostname that supplied this file
+					h=${h// /_}				# replace any spaces in hostname with '_'
+					uniqnm=$(unique_name "$f") || exit 1		# use filesize to help de-dup filename list
+					printf -v "$h[${uniqnm}]" %s "$f"	# save & de-dup filename to hostname specific associative array
+				fi
+			done <<< "$rows"
 		done 
 	done
 
