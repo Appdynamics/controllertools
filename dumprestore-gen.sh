@@ -48,7 +48,7 @@ function call_curl {
         (( $# >= 1 )) || err "Usage: ${FUNCNAME[0]} <curl args>"
         local curl_resp text retc
 
-        curl_resp=$(curl -m 2 -s -w "%{http_code}" "$@" 2>&1) || { retc=$?; warn "curl $@ failed: $curl_resp ($retc)"; return $retc; }
+        curl_resp=$(curl -m 20 -s -w "%{http_code}" "$@" 2>&1) || { retc=$?; warn "curl $@ failed: $curl_resp ($retc)"; return $retc; }
         if [[ ${curl_resp: -3:1} == 2 ]] ; then         # all 2xx codes are SUCCESS
                 text=${curl_resp:0: $((${#curl_resp}-3))}			# patch to run on MacOS Bash - that is too old
         else
