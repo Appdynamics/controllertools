@@ -127,7 +127,7 @@ if ($ncols == 7) {			# assume blocks headed by 'MM/DD/YY[YY] HH:MM:SS'
 	 ($in_datetime,$cpu_head,$cpu_stats) = $block =~ m{(\d\d/\d\d/\d\d.*)\s+.*?(%user.*?idle)\s+(\d+.\d+.*?)$}m;
 	 $out_datetime = reformat_to_iso( $in_datetime );
       } else {				# Device block found
-         $block =~ s/^dm-.*\n//g;      	# drop all dm- device rows
+         $block =~ s/dm-.*\n//g;      	# drop all dm- device rows
 	 ($device_head) = $block =~ m{^(Device.*?util)\s}mgc;
 
 	 defined $device_head || die "Failed to parse Device details within: $block";
@@ -138,7 +138,7 @@ if ($ncols == 7) {			# assume blocks headed by 'MM/DD/YY[YY] HH:MM:SS'
 	    $first = 0;
 	 }
 
-	 while ($block =~ m/\G((?:sd|fi|nv).*)\s/mgc) {
+	 while ($block =~ m/\G((?:sd|fi|nv|xv).*)\s/mgc) {
 	    my $device_stats = $1;
             check(scalar split(" ", $device_stats), $device_stats);
 	    my $row = "$out_datetime\t$device_stats\t$cpu_stats";
