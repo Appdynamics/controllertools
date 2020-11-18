@@ -40,8 +40,10 @@ my ($firstrow, $addbuffer) = (1, 1);
 $"=",";
 while ( defined( my $row = <STDIN> ) ) {
    my @outcols = map { s/^.*=//r } split(" ", $row);
-   if (@outcols != 5) {
-      print STDERR "skipping invalid row: $row" if @outcols != 5;
+   my $equal_cnt = $row =~ tr/=//;
+   if (@outcols != 5 || $equal_cnt != 4) {
+      chomp($row);
+      print STDERR "skipping invalid row: $row\n";
       next;
    }
 
