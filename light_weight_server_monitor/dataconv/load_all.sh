@@ -300,7 +300,7 @@ function load_data {
 	for host in ${hosts[*]} ; do				# separate load per hostname to support different labelling for each
 		loadid=$(get_loadid "$LOADIDFILE") || return 1	
 		h="$host[@]"					# setup trick to enable cat "${!h}" <-- which works for filenames with spaces
-		(set -o pipefail; $cmd < <(cat "${!h}") | perl ${dataconv}/csv_to_tsdb.pl -tz America/Los_Angeles -m "$metric" -h "$host" -L "$loadid" | pv -f | nc -w 15 $TSDBHOST $TSDBPORT) 
+		(set -o pipefail; $cmd < <(cat "${!h}") | perl ${dataconv}/csv_to_tsdb.pl -tz America/Los_Angeles -m "$metric" -h "$host" -L "$loadid" | pv -lf | nc -w 15 $TSDBHOST $TSDBPORT) 
 		if (( $? == 0 )); then
 			end_secs=$(date +%s)
 			info "successfully loaded data for $mon monitor from $host ($((end_secs-start_secs)) sec)"
