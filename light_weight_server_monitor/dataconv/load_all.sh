@@ -41,7 +41,7 @@ declare -A MONS=(
 	      [slowlog]="perl slowlog_to_csv.pl"
 	      [statics]=""				# never converted to CSV
 	      [gfpools]="perl gfpools_to_csv.pl"
-	       [procio]=""				# not converted to CSV yet
+	       [procio]="perl procio_to_csv.pl"
 )
 declare -A HOSTS=()
 CHOSEN_MONS=()
@@ -297,6 +297,17 @@ function load_data {
 
 	start_secs=$(date +%s)
 	info "starting load for $mon..."
+
+	#
+	# ATTENTION
+	#
+	# BUG here for slowlog. Assumption is that multiple monX output files can be loaded as they partition time. This is *NOT* true
+	# for *slowlog* which always starts again from the beginning. Either:
+	#  - slowlog collection needs to change to pick up from where left off earlier 
+	#  - only the most recent file is loaded (risks missing data if only a short run)
+	#  - some attempt to de-dup the concatenated slowlog files is completed
+
+
 	for host in ${hosts[*]} ; do				# separate load per hostname to support different labelling for each
 		loadid=$(get_loadid "$LOADIDFILE") || return 1	
 		h="$host[@]"					# setup trick to enable cat "${!h}" <-- which works for filenames with spaces
