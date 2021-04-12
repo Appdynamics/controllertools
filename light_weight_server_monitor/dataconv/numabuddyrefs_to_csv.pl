@@ -121,6 +121,7 @@ while (defined (my $block = <STDIN>)) {
    my ($datetime) = $block =~ m/^(\d\d\d\d-\S+)/;
    defined $datetime || die "unable to read current datetime within: $block";
    $block =~ s/^.*?$//m;	# delete datetime header row
+   $block =~ s/\015?\012/\n/g;	# normalise Windows CRLF to just LF
 
    my ($buddyinfo, $procvmstat, $numastat) = $block =~ m/#section buddyinfo:\s(.*?)\s#section procvmstat:\s(.*?)\s#section numastat:\s(.*?)\s(?:$delim)?\Z/ms;
    defined $buddyinfo || die "ERROR: buddyinfo section not read within: $block";

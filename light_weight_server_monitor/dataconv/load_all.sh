@@ -29,7 +29,7 @@ USAGESTR="Usage: $PROGNAME -d <data dir1>,<d2>,<d3> 	# load all monitor data the
 	[-c	<dataconv directory>]			# where the conversion tools live
 "
 declare -A MONS=(
-  	       [iostat]="perl iostat_reformat.pl -c"
+  	       [iostat]="perl iostat_to_csv.pl"
 	       [vmstat]="bash vmstat_to_csv.sh"
 	       [dbtest]=""				# not converted to CSV yet
 	       [dbvars]="perl dbvars_to_csv.pl"
@@ -154,11 +154,14 @@ function monx_file {
 # 214903_iostat_abcdef000003700.intranet.mycompany.com_1593031296.txt
 function get_host {
 	(( $# == 1 )) || err "Usage: ${FUNCNAME[0]} <monX filename>"
-	local fname=$1 thost fhost
+	local fname=$1 thost fhost lhost
 
 	thost=${fname%_*}	# strip trailing _1593031296.txt
 	fhost=${thost##*_}	# strip leading 214903_iostat_
-	echo ${fhost%%.*}	# strip trailing .intranet.mycompany.com
+	lhost=${fhost%%.*}	# strip trailing .intranet.mycompany.com
+	lhost=${lhost// /_}		# replace any spaces in hostname with '_'
+	lhost=${lhost//-/_}		# replace any '-' in hostname with '_'
+	echo $lhost
 }
 
 #
@@ -175,7 +178,6 @@ function record_hosts {
 			while IFS= read -r f; do
 				if [[ -f "$f" ]]; then
 					h=$(get_host "$f") || exit 1
-					h=${h// /_}			# replace any spaces in hostname with '_'
 					hosts[$h]=$h			# update associative array parameter
 				fi
 			done <<< "$rows"
@@ -283,7 +285,6 @@ function load_data {
 			while IFS= read -r f; do
 				if [[ -f "$f" ]] ; then
 					h=$(get_host "$f") || exit 1		# determine hostname that supplied this file
-					h=${h// /_}				# replace any spaces in hostname with '_'
 					uniqnm=$(unique_name "$f") || exit 1		# use filesize to help de-dup filename list
 					printf -v "$h[${uniqnm}]" %s "$f"	# save & de-dup filename to hostname specific associative array
 				fi

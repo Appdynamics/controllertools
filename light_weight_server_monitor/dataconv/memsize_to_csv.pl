@@ -15,13 +15,36 @@ sub usage {
 
 {
    my ($minc, $maxc) = (9999999,0);                     # global variable private to check() i.e. C static variable
+   my $dataversion;					# initially undefined then set to 1 or 2 or ... used to signal version specific actions
+
+   sub reset_limits {
+      $minc = 9999999;
+      $maxc = 0;
+   }
+
+   # check whether column counts remain consistent except when data versions change.
+   # return the data version number prior to call. Allows checks for version changes.
    sub check {
-      my $nf = $_[0] // die "check: needs 1st arg";
-      my $row = $_[1] // die "check: needs 2nd arg";
+      my $nf = $_[0] // die "@{[(caller(0))[3]]}: needs 1st arg";
+      my $row = $_[1] // die "@{[(caller(0))[3]]}: needs 2nd arg";
+      my $version_in = $_[2] // die "@{[(caller(0))[3]]}: needs 3rd arg";
+      my $lastrow_version = $version_in;				# sensible default value... might need over writing
+
+      if (defined( $dataversion )) {					# changing data versions with different columns should not flag up as an error
+	 if ($dataversion != $version_in) {
+            reset_limits();
+	    $lastrow_version = $dataversion;				# save prior version to be able to return it
+            $dataversion = $version_in;
+	 }
+      } else {
+         $dataversion = $version_in;
+      }
 
       $maxc = $nf if $nf > $maxc; 
       $minc = $nf if $nf < $minc;
       die "ERROR: inconsistent column count (maxc=$maxc,minc=$minc) in row: $row" if $maxc != $minc;
+
+      return $lastrow_version;
    }
 }  
 
@@ -34,24 +57,31 @@ my ($gf_rss, $gf_vsz, $gf_swap, $mysql_rss, $mysql_vsz, $mysql_swap, $cols);
 
 $cols = 3; 			# assume input comes from mon30 initially...
 my $firstrow = 1;
+my $lastrow_version;
 while ( defined( my $row = <STDIN> ) ) {
    $row =~ s/\015?\012/\n/g;         			# normalise Windows CRLF to just LF
    next if $row =~ m/UNABLE_TO_READ/;			# /proc read error
    next if $row =~ m/_RUNNING/;				# process not currently running
    my @column = split(" ", $row);
-   check(scalar @column, $row);		# sanity check else die
    
    #
    # over the years the memory measurement needs have changed and so this parsing for backwards compatibility now looks messy
    # Currently support all monX versions and will continue to do that
    if ($column[0] =~ m/^\d{4,4}-\d{2,2}-\d{2,2}T\d{2,2}:\d{2,2}/) {	# first column a timestamp => mon31+ format
-      if ($firstrow == 1) {
+      # DATA VERSION == 2
+      $lastrow_version = check(scalar @column, $row, 2);		# sanity check else die
+
+      if ($firstrow == 1 || $lastrow_version != 2) {			# output header row at very beginning else whenever data versions change
 	 print "timestamp,node,@{[ join(q{,},map { s/=.*$//r } @column[2..$#column]) ]}\n";
 	 $firstrow = 0;
       }
       print "@{[ join(q{,},map { s/^.*=//r } @column) ]}\n";
-      
-   } else {								# pre mon31 formats
+      $lastrow_version = 2;
+
+   } else {								# pre mon31 formats 
+      # DATA VERSION == 1
+      $lastrow_version = check(scalar @column, $row, 1);		# sanity check else die
+
       # break following into 3 separate matches to prevent one mis-match causing all others to not match either
       my ($gf) = $row =~ m/^gf_rss_[^=]+=(\S+)\s+mysql_rss/;	
       my ($mysql) = $row =~ m/\s+mysql_rss_[^=]+=(\S+)\s/;
@@ -68,7 +98,7 @@ while ( defined( my $row = <STDIN> ) ) {
       defined $gf_rss && defined $gf_vsz or die "bad sizes for Glassfish memory: $row";
 
       # bit ugly way to determine expectation for 2 or 3 cols per GF or MySQL
-      if ($firstrow == 1) {		# set expected # columns from gf values in 1st row
+      if ($firstrow == 1 || $lastrow_version != 1) {			# set expected # columns from gf values in 1st row
 	 $cols = (defined $gf_swap)? 3 : 2;
       } else {
 	 die "bad sizes for Glassfish memory: $row" if (($cols == 2 && defined $gf_swap) || ($cols == 3 && $gf_vsz > 0 && ! defined $gf_swap));
@@ -88,7 +118,7 @@ while ( defined( my $row = <STDIN> ) ) {
       my ($tsm) = $ts =~ m/^(\d+-\d+-\d+T\d+:\d+)/;
       defined $tsm or die "$0: unable to get ISO date from '$row'";
 
-      if ($firstrow == 1) {	# compile header from column identifiers
+      if ($firstrow == 1 || $lastrow_version != 1) {	# compile header from column identifiers
 	 my ($tag1,$extn11,$extn12,$extn13,$tag2,$extn21,$extn22,$extn23);
 	 if ($cols == 3) {
 	    ($tag1,$extn11,$extn12,$extn13,$tag2,$extn21,$extn22,$extn23) = $row =~ m/^([^_]+)_([^_]+)_([^_]+)_([^_]+)=\S+\s([^_]+)_([^_]+)_([^_]+)_([^_]+)=/;

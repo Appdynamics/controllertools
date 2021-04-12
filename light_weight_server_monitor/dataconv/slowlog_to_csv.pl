@@ -39,6 +39,7 @@ my ($buffer_num, $lastsecs) = (0, 0);
 my ($firstrow, $addbuffer) = (1, 1);
 $"=",";
 while ( defined( my $row = <STDIN> ) ) {
+   $row  =~ s/\015?\012/\n/g;		# normalise Windows CRLF to just LF
    my @outcols = map { s/^.*=//r } split(" ", $row);
    my $equal_cnt = $row =~ tr/=//;
    if (@outcols != 5 || $equal_cnt != 4) {
