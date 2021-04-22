@@ -17,6 +17,7 @@ sub usage {
 	return "Usage: $0 < <iostat monX file>";
 }
 
+# convert to ISO dates like 'MM/DD/YY[YY] HH:MM:SS [AM|PM]' i.e. %m/%d/[%C]%y %T [%p]
 sub reformat_to_iso {
 	my $row = $_[0];
    	defined $row or die "reformat: needs date string arg";
@@ -41,13 +42,13 @@ sub reformat_to_iso {
    	} elsif ($year <= 99) {
       		$year += 1900;
    	}
-   	defined $day && defined $mon && defined $year or die "bad date for $row";
+   	defined $day && defined $mon && defined $year or die "@{[(caller(0))[3]]}: bad date for $row";
 
    	return sprintf("%04d-%02d-%02dT%02d:%02d:%02d", $year, $mon, $day, $hr, $min, $sec);
    	#return sprintf("%04d-%02d-%02dT%02d:%02d", $year, $mon, $day, $hr, $min);    # ignore sec so can join with rolled up slow.log
 }
 
-# parse row like 'Tuesday 06 April 2021 12:17:01  IST'
+# convert to ISO a row like 'Tuesday 06 April 2021 12:17:01  IST'
 sub date_to_iso {
 	my $row = $_[0] // die "@{[(caller(0))[3]]}: needs a date string arg";
 	my $mon;
@@ -61,7 +62,7 @@ sub date_to_iso {
    	} elsif ($year <= 99) {
       		$year += 1900;
    	}
-   	defined $day && defined $mon && defined $year or die "bad date for $row";
+   	defined $day && defined $mon && defined $year or die "@{[(caller(0))[3]]}: bad date for $row";
 
 	return sprintf("%04d-%02d-%02dT%02d:%02d:%02d", $year, $mon, $day, $hr, $min, $sec);
 }
@@ -122,17 +123,35 @@ sub mkdatetime {
    }
 }
 
+# convert to ISO a row like '2021-04-21T20:41:49-0700' i.e. basically lose the TZ part and check all OK in the process
+sub iso_withTZ_to_iso {
+	my $row = $_[0] // die "@{[(caller(0))[3]]}: needs a date string arg";
+
+	my ($year,$mon,$day,$hr,$min,$sec) = $row =~ m/^(\d\d\d\d)-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)/;
+	defined $day && defined $mon && defined $year or die "@{[(caller(0))[3]]}: bad date for $row";
+
+	return sprintf("%04d-%02d-%02dT%02d:%02d:%02d", $year, $mon, $day, $hr, $min, $sec);
+}
+
 sub set_datetime_parser {
-	my $ncols = $_[0];
-	defined $ncols or die "@{[(caller(0))[3]]}: needs ncols arg";
+	my $row = $_[0] // die "@{[(caller(0))[3]]}: needs row arg";
 	my $ref;
 
-	if ($ncols == 7) {					# assume dates like 'MM/DD/YY[YY] HH:MM:SS [AM|PM]' i.e. %m/%d/[%C]%y %T [%p]
-		$ref = \&reformat_to_iso;
+	my ($date) = $row =~ m/^\S+\s+\S+\s+\S+\s+(.*?)\s+_x86_.*?CPU.$/;	# snag the middle date part of header row
+
+	my $ncols = scalar split(" ", $row);
+	if ($ncols == 7) {
+		if (($date =~ tr!/!!) == 2) {
+			$ref = \&reformat_to_iso;		# assume dates like 'MM/DD/YY[YY] HH:MM:SS [AM|PM]' i.e. %m/%d/[%C]%y %T [%p]
+		} elsif (($date =~ tr!-!!) == 2) {
+			$ref = \&iso_withTZ_to_iso;		# assume dates like '2021-04-21T22:42:07-0700'
+		} else {
+			die "unable to parse iostat header: $row";
+		}
 	} elsif ($ncols == 10) {				# assume dates like 'Tuesday 06 April 2021 12:17:01  IST' i.e. %A %d %B %Y %T  %Z
 		$ref = \&date_to_iso;
 	} else {						# not yet implemented
-		die "unable to parse iostat - likely because date format parser unimplemented!";
+		die "unable to parse iostat data - likely because date format parser unimplemented!";
 	}
 
 	return $ref;
@@ -146,11 +165,9 @@ sub set_datetime_parser {
 # read first row and assume subsequent format...
 my $row = <STDIN>;
 $row =~ s/\015?\012/\n/g; 	# normalise Windows CRLF to just LF
-my @col = split(" ", $row);
-my $ncols = scalar @col;
 
-# determine correct date parser from number of columns of header row 
-my $read_datetime = set_datetime_parser( $ncols );	# function pointer
+# determine correct date parser from columns of header row 
+my $read_datetime = set_datetime_parser( $row );	# set function pointer
 
 my $header_todo = 1;
 my ($cpu_head,$cpu_stats,$out_datetime,$device_head) = ("","","","");
@@ -158,9 +175,8 @@ while ( defined( $row = <STDIN> ) ) {
 	$row =~ s/\015?\012/\n/g;		# normalise Windows CRLF to just LF
 	chomp( $row ); next if length($row) == 0;
 
-	if ($row =~ m/^Linux/) {			# check column count and skip iostat header row - found with concatenated inputs
-		$ncols = scalar split(" ", $row);
-		$read_datetime = set_datetime_parser( $ncols );
+	if ($row =~ m/^Linux/) {			# set datetime parser and skip iostat header row - found with concatenated inputs
+		$read_datetime = set_datetime_parser( $row );
 		next;
 	}
 
