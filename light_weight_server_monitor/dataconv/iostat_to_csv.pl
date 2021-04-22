@@ -9,38 +9,61 @@ use strict;
 
 use POSIX qw( mktime );
 
+# US/UK
+my %nmon = ( 'January'=>'01', 'February'=>'02', 'March'=>'03', 'April'=>'04', 'May'=>'05', 'June'=>'06', 
+	'July'=>'07', 'August'=>'08', 'September'=>'09', 'October'=>'10', 'November'=>'11', 'December'=>'12' );
+
 sub usage {
 	return "Usage: $0 < <iostat monX file>";
 }
 
 sub reformat_to_iso {
-   my $row = $_[0];
-   defined $row or die "reformat: needs date string arg";
+	my $row = $_[0];
+   	defined $row or die "reformat: needs date string arg";
 
-   my ($mon,$day,$year,$hr,$min,$sec,$ampm) = $row =~ m{(\d+)/(\d+)/(\d+)\s+(\d+):(\d+):(\d+)(?:\s+(AM|PM))*}i;
-   if (defined $ampm) {
-      $ampm = lc $ampm;
-      die "reformat: invalid am/pm value '$ampm'" unless $ampm =~ m/^(am|pm)$/;
+   	my ($mon,$day,$year,$hr,$min,$sec,$ampm) = $row =~ m{(\d+)/(\d+)/(\d+)\s+(\d+):(\d+):(\d+)(?:\s+(AM|PM))*}i;
+   	if (defined $ampm) {
+      		$ampm = lc $ampm;
+      		die "reformat: invalid am/pm value '$ampm'" unless $ampm =~ m/^(am|pm)$/;
 
-      # 12 AM == 00 hrs
-      # 12 PM == 12 hrs
-      # otherwise if pm then add 12
-      if ($hr == 12) {
-         $hr = 0 if ($ampm eq 'am');
-      } else {
-         $hr = ($ampm eq 'am')? $hr : 12+$hr;
-      }
-   }
+      		# 12 AM == 00 hrs
+      		# 12 PM == 12 hrs
+      		# otherwise if pm then add 12
+      		if ($hr == 12) {
+         		$hr = 0 if ($ampm eq 'am');
+      		} else {
+         		$hr = ($ampm eq 'am')? $hr : 12+$hr;
+      		}
+   	}
 
-   if ($year < 50) {
-      $year += 2000;
-   } elsif ($year <= 99) {
-      $year += 1900;
-   }
-   defined $day && defined $mon && defined $year or die "bad date for $row";
+   	if ($year < 50) {
+      		$year += 2000;
+   	} elsif ($year <= 99) {
+      		$year += 1900;
+   	}
+   	defined $day && defined $mon && defined $year or die "bad date for $row";
 
-   #return sprintf("%04d-%02d-%02dT%02d:%02d:%02d", $year, $mon, $day, $hr, $min, $sec);
-   return sprintf("%04d-%02d-%02dT%02d:%02d", $year, $mon, $day, $hr, $min);    # ignore sec so can join with rolled up slow.log
+   	return sprintf("%04d-%02d-%02dT%02d:%02d:%02d", $year, $mon, $day, $hr, $min, $sec);
+   	#return sprintf("%04d-%02d-%02dT%02d:%02d", $year, $mon, $day, $hr, $min);    # ignore sec so can join with rolled up slow.log
+}
+
+# parse row like 'Tuesday 06 April 2021 12:17:01  IST'
+sub date_to_iso {
+	my $row = $_[0] // die "@{[(caller(0))[3]]}: needs a date string arg";
+	my $mon;
+
+	my ($day,$month,$year,$hr,$min,$sec) = $row =~ m/^\S+\s+(\d+)\s+(\S+)\s+(\d+)\s+(\d+):(\d+):(\d+)/;
+
+	$mon = $nmon{$month};
+
+   	if ($year < 50) {
+      		$year += 2000;
+   	} elsif ($year <= 99) {
+      		$year += 1900;
+   	}
+   	defined $day && defined $mon && defined $year or die "bad date for $row";
+
+	return sprintf("%04d-%02d-%02dT%02d:%02d:%02d", $year, $mon, $day, $hr, $min, $sec);
 }
 
 # accept a date & time string and then return epoch seconds for 00:00 of current day
@@ -99,6 +122,22 @@ sub mkdatetime {
    }
 }
 
+sub set_datetime_parser {
+	my $ncols = $_[0];
+	defined $ncols or die "@{[(caller(0))[3]]}: needs ncols arg";
+	my $ref;
+
+	if ($ncols == 7) {					# assume dates like 'MM/DD/YY[YY] HH:MM:SS [AM|PM]' i.e. %m/%d/[%C]%y %T [%p]
+		$ref = \&reformat_to_iso;
+	} elsif ($ncols == 10) {				# assume dates like 'Tuesday 06 April 2021 12:17:01  IST' i.e. %A %d %B %Y %T  %Z
+		$ref = \&date_to_iso;
+	} else {						# not yet implemented
+		die "unable to parse iostat - likely because date format parser unimplemented!";
+	}
+
+	return $ref;
+}
+
 ############################################################################
 # Main body
 ############################################################################
@@ -110,56 +149,51 @@ $row =~ s/\015?\012/\n/g; 	# normalise Windows CRLF to just LF
 my @col = split(" ", $row);
 my $ncols = scalar @col;
 
+# determine correct date parser from number of columns of header row 
+my $read_datetime = set_datetime_parser( $ncols );	# function pointer
+
 my $header_todo = 1;
-if ($ncols == 7) {					# assume blocks headed by 'MM/DD/YY[YY] HH:MM:SS'
-	my ($cpu_head,$cpu_stats,$out_datetime,$device_head) = ("","","","");
-	while ( defined( $row = <STDIN> ) ) {
-		$row =~ s/\015?\012/\n/g;		# normalise Windows CRLF to just LF
-		chomp( $row ); next if length($row) == 0;
+my ($cpu_head,$cpu_stats,$out_datetime,$device_head) = ("","","","");
+while ( defined( $row = <STDIN> ) ) {
+	$row =~ s/\015?\012/\n/g;		# normalise Windows CRLF to just LF
+	chomp( $row ); next if length($row) == 0;
 
-		next if $row =~ m/^Linux/;		# skip iostat header row
-
-		if ($row =~ m{^\d+/\d}){		# input and parse all contiguous rows up to empty row
-			$out_datetime = reformat_to_iso( $row );
-			while ( defined( $row  = <STDIN> ) ){
-				$row =~ s/\015?\012/\n/g;		# normalise Windows CRLF to just LF
-				chomp( $row ); last if length($row) == 0;
-
-				$cpu_head = $1  if $row =~ m/^avg-cpu:\s+(%user.*?idle)/;
-				$cpu_stats = $1 if $row =~ m/^\s+(\d+.\d+.*?)$/;
-			}
-			next;				# back to top loop
-		}
-
-		if ($row =~ m/^Device:/){		# input and parse all device rows up to empty row
-			($device_head) = $row =~ m/^(Device.*?util)$/;
-			defined $device_head || die "Failed to parse Device details within: $row";
-			if ($header_todo == 1) {
-				my $hdr = join(",", map { my $c = $_; $c =~ s/^\w+=//; $c } split(" ", "timestamp\t\t$device_head\t$cpu_head"));
-				print "$hdr\n";
-				$header_todo = 0;
-			}
-			while ( defined( $row = <STDIN> ) ) {
-				$row =~ s/\015?\012/\n/g;			# normalise Windows CRLF to just LF
-				chomp( $row ); last if length($row) == 0;
-
-				next if $row =~ m/^dm-/;			# drop all dm-* device stats - raw block devices simpler
-				next unless $row =~ m/^(?:sd|fi|nv|xv|em)/;	# only report devices with these prefixes
-				check(scalar split(" ", $row), $row);
-				my $orow = join(",", map { my $c = $_; $c =~ s/^\w+=//; $c } split(" ", "$out_datetime\t$row\t$cpu_stats"));
-				print "$orow\n";
-			}
-			next;				# back to top loop
-		}
+	if ($row =~ m/^Linux/) {			# check column count and skip iostat header row - found with concatenated inputs
+		$ncols = scalar split(" ", $row);
+		$read_datetime = set_datetime_parser( $ncols );
+		next;
 	}
-} elsif ($ncols == 4) {					# assume blocks headed by 'Time: 07:36:02 PM'
-	# currently short of time and old iostat examples.... will leave this unimplemented for now
-	die "older iostat format found... CSV parsing needs implementing for this!";
 
-	chomp( my $date = $col[-1]);
-	my $secs_to_midnight = get_epoch_to_midnight( $date );
-	my $last_ampm;
-	while ( defined( $row = <STDIN> ) ) {
-		$row =~ s/\015?\012/\n/g;		# normalise Windows CRLF to just LF
+	if ($row =~ m{^\d+/\d} || ($row =~ tr/://) == 2){	# found datetime so input and parse all contiguous rows up to empty row
+		$out_datetime = $read_datetime->( $row );
+		while ( defined( $row  = <STDIN> ) ){
+			$row =~ s/\015?\012/\n/g;		# normalise Windows CRLF to just LF
+			chomp( $row ); last if length($row) == 0;
+
+			$cpu_head = $1  if $row =~ m/^avg-cpu:\s+(%user.*?idle)/;
+			$cpu_stats = $1 if $row =~ m/^\s+(\d+.\d+.*?)$/;
+		}
+		next;				# back to top loop
+	}
+
+	if ($row =~ m/^Device:/){		# input and parse all device rows up to empty row
+		($device_head) = $row =~ m/^(Device.*?util)$/;
+		defined $device_head || die "Failed to parse Device details within: $row";
+		if ($header_todo == 1) {
+			my $hdr = join(",", map { my $c = $_; $c =~ s/^\w+=//; $c } split(" ", "timestamp\t\t$device_head\t$cpu_head"));
+			print "$hdr\n";
+			$header_todo = 0;
+		}
+		while ( defined( $row = <STDIN> ) ) {
+			$row =~ s/\015?\012/\n/g;			# normalise Windows CRLF to just LF
+			chomp( $row ); last if length($row) == 0;
+
+			next if $row =~ m/^dm-/;			# drop all dm-* device stats - raw block devices simpler
+			next unless $row =~ m/^(?:sd|fi|nv|xv|em)/;	# only report devices with these prefixes
+			check(scalar split(" ", $row), $row);
+			my $orow = join(",", map { my $c = $_; $c =~ s/^\w+=//; $c } split(" ", "$out_datetime\t$row\t$cpu_stats"));
+			print "$orow\n";
+		}
+		next;				# back to top loop
 	}
 }
