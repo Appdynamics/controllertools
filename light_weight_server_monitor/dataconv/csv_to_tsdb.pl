@@ -153,7 +153,7 @@ while (defined (my $row = <STDIN>) ) {
       
    for my $col ( keys %metric_cols ) {	# print out metrics only
       # throttle outputs to avoid OpenTSDB 'put: Please throttle writes: 10000 RPCs waiting on ' messages
-      sleep 0.2 if $row_count % 150000 == 0;
+      sleep 0.5 if $row_count % 150000 == 0;
       print "put $tsdbmetric $epoch $row{ $col } col=$col$device$buffer$port$listener$node$zone$event$connuser$connhost $hoststr $loadid\n" if length($row{ $col });
       ++$row_count;
    }
