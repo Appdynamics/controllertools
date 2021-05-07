@@ -69,11 +69,11 @@ while (defined (my $row = <STDIN>) ) {
    chomp( $row );
 
    if ($row =~ m/(?:timestamp,)|(?:,timestamp)/i) {		# assume that this row is a header and possibly start of new sequence of rows
-      @col_header = map { my $c = $_; $c =~ s/\%/pct/; $c =~ tr/(/_/; $c =~ tr/)//d; $c } split(/,/, $row);
+      @col_header = map { my $c = $_; $c =~ s/\%/pct/; $c =~ s/^\s+//; $c =~ s/\s+$//; $c =~ tr/(/_/; $c =~ tr/)//d; $c } split(/,/, $row);
       next;
    }
 
-   my @col = split(/,/, $row);
+   my @col = map { my $c = $_; $c =~ s/^\s+//; $c =~ s/\s+$//; $c } split(/,/, $row);
 
    my %row;
    @row{ @col_header } = @col;		# simplify value lookup

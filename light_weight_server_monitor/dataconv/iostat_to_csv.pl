@@ -144,7 +144,7 @@ sub set_datetime_parser {
 		if (($date =~ tr!/!!) == 2) {
 			$ref = \&reformat_to_iso;		# assume dates like 'MM/DD/YY[YY] HH:MM:SS [AM|PM]' i.e. %m/%d/[%C]%y %T [%p]
 		} elsif (($date =~ tr!-!!) == 2) {
-			$ref = \&iso_withTZ_to_iso;		# assume dates like '2021-04-21T22:42:07-0700'
+			$ref = \&iso_withTZ_to_iso;		# assume dates like '2021-04-21T22:42:07[-0700]'
 		} else {
 			die "unable to parse iostat header: $row";
 		}
