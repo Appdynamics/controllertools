@@ -1,0 +1,98 @@
+<!doctype html>
+<!--suppress SpellCheckingInspection -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- The above 3 meta tags *must* come first in the head; any other head content must come *after* these tags -->
+    <meta name="monX viewer" content="">
+    <meta name="robnav" content="">
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='images/apple-touch-icon.png') }}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='images/favicon-32x32.png') }}">
+    <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='images/favicon-16x16.png') }}">
+    <link rel="manifest" href="{{ url_for('static', filename='images/site.webmanifest') }}">
+
+    <link rel="canonical" href="https://getbootstrap.com/docs/3.4/examples/starter-template/">
+
+    <title>monXv</title>
+
+    <!-- Bootstrap core CSS -->
+    <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+    <!-- Bootstrap theme -->
+    <link href="{{ url_for('static', filename='css/bootstrap-theme.min.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/bootstrap-select.min.css') }}" rel="stylesheet">
+
+  </head>
+
+   <body>
+      <header class="site-header">
+        <nav class="navbar navbar-inverse fixed-top">
+          <div class="container">
+            <div class="navbar-header">
+              <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar" aria-expanded="false" aria-controls="navbar">
+                <span class="sr-only">Toggle navigation</span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+              </button>
+              <a class="navbar-brand" href="{{ url_for('site.index') }}">monX viewer</a>
+            </div>
+            <div id="navbar" class="collapse navbar-collapse">
+              <ul class="nav navbar-nav">
+                <li id="nb1" class="nav-item"><a href="{{ url_for('site.load') }}">Load</a></li>
+                <li id="nb2" class="nav-item"><a href="http://localhost:4242" target="_blank">Graph</a></li>
+                <li id="nb3" class="nav-item"><a href="{{ url_for('site.columns') }}">Columns</a></li>
+                <li id="nb4" class="nav-item"><a href="#">About</a></li>
+              </ul>
+            </div><!--/.nav-collapse -->
+          </div>
+        </nav>
+      </header>
+
+      <main role="main" class="container">
+        <div class="row">
+            <div class="col-md-8">
+                {% block content %}{% endblock %}
+            </div><!-- /.container -->
+        </div><!-- XX/.row -->
+      </main>
+
+      <!-- Bootstrap core JavaScript
+      ================================================== -->
+      <!-- Placed at the end of the document so the pages load faster BUT must preceed all local Javascript -->
+      <script src="{{ url_for('static', filename='js/jquery-1.12.4.min.js') }}"></script>
+      <script src="{{ url_for('static', filename='js/bootstrap.min.js') }}"></script>
+      <!--    <script src="{{ url_for('static', filename='js/bootstrap-select.min.js') }}"></script>  -->
+      <script src="{{ url_for('static', filename='js/bootstrap-select.js') }}"></script>
+
+      {% block scripts %} {% endblock %}
+
+      <script>
+         // Navbar
+         // modified from: https://stackoverflow.com/questions/17295024/how-to-make-li-add-css-class-active-after-refreshing-page/19378686h
+         $(document).ready(function() {
+            // cause navbar selection to stay 'active' after page refresh
+            $(".navbar-nav .nav-item").click(function() {
+               var id = $(this).attr("id");
+    //         $('#' + id).siblings().find('.active').removeClass("active");         does not work reliably
+               $('#' + id).siblings('.active').removeClass("active");
+               $('#' + id).addClass("active");
+               localStorage.setItem("selectedOldItem", id);
+            });
+            // remove all navbar active selections when selecting home page
+            $(".navbar-brand").click(function() {
+               $('.nav-item').removeClass('active');
+               localStorage.removeItem('selectedOldItem');
+            });
+            // simply repaint previous active selection
+            var selectedOldItem = localStorage.getItem('selectedOldItem');
+            if (selectedOldItem != null) {
+               $('#' + selectedOldItem).siblings('.active').removeClass("active");
+               $('#' + selectedOldItem).addClass("active");
+            }
+         });
+      </script>
+
+   </body>
+</html>

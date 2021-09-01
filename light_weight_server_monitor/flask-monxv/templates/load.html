@@ -1,0 +1,149 @@
+{% extends 'base.html' %}
+{% block content %}
+    <br><br><br>
+    <form action="{{ url_for('site.load_data') }}" class="form-signin" name="inform" id="inform" method="post">
+        <div class="form-group">
+            <label for="dirs">Enter data file or directory names:</label>
+            <textarea class="form-control" rows="5" name="dirs" id="dirs" maxlength="10240" style="font-family:monospace;" placeholder="Enter monX file or directory pathname - one per row" required></textarea>
+        </div>
+
+        <!-- Split button -->
+        <div class="btn-group">
+          <button type="button" id="def-button" data-value="yy" class="btn btn-primary def-choice">Empty then Load</button>
+          <button type="button" class="btn btn-primary dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+            <span class="caret"></span>
+            <span class="sr-only">Toggle Dropdown</span>
+          </button>
+          <div class="dropdown-menu">
+            <li data-value="ny"><a href="#">Load</a></li>
+            <li data-value="yn"><a href="#">Empty</a></li>
+          </div>
+        </div>
+
+        <select name="mon_selector" id="selectedmons" class="selectpicker" multiple title="All monitors to be loaded" data-selected-text-format="count > 3" data-style="btn-primary" data-width="fit">
+            <option value="gfpools" data-subtext="Glassfish connection queue, thread pool, MySQL connection pool">gfpools</option>
+            <option value="iostat" data-subtext="iostat cols">iostat</option>
+            <option value="vmstat" data-subtext="vmstat columns">vmstat</option>
+            <option value="dbvars" data-subtext="MySQL - selected from show global status">dbvars</option>
+            <option value="conxcount" data-subtext="'netstat -ant' connection states">conxcount</option>
+            <option value="numabuddyrefs" data-subtext="/proc/{buddyinfo,vmstat} and numastat -czmn">numabuddyrefs</option>
+            <option value="slowlog" data-subtext="metricdata_min insert times and row counts">slowlog</option>
+            <option value="fdcount" data-subtext="Glassfish & MySQL open file descriptor counts">fdcount</option>
+            <option value="memsize" data-subtext="Glassfish & MySQL selected /proc/PID/status fields">memsize</option>
+            <option value="procio" data-subtext="Glassfish & MySQL selected /proc/PID/io fields">procio</option>
+        </select>
+    </form>
+    <br>
+    <span id="spinner"></span>
+    <br><br>
+    <form name="outform">
+        <div class="form-group">
+            <label for="runout">Log:</label>
+            <textarea class="form-control" rows="15" id="runout" style="font-family:monospace;" readonly></textarea>
+        </div>
+    </form>
+
+{% endblock content %}
+
+{% block scripts %}
+<!-- from: https://javascript.info/server-sent-events -->
+<script>
+   let eventSource;
+
+   function start_fetch_sse() { // when "Start" button pressed
+      if (!window.EventSource) {
+         // IE or an old browser
+         alert("The browser doesn't support EventSource.");
+         return;
+      }
+
+      //  eventSource = new EventSource('subscribe');
+      eventSource = new EventSource("{{ url_for('sse.stream') }}");
+
+      eventSource.onopen = function(e) {
+        log("[[DEBUG: eventSource.onopen]]\n");
+      };
+
+      eventSource.onerror = function(e) {
+         log("Event: error\n");
+         if (this.readyState == EventSource.CONNECTING) {
+            log(`[[DEBUG: Reconnecting (readyState=${this.readyState})...]]`);
+         } else {
+            log("[[Error has occurred.]]\n");
+         }
+      }
+      eventSource.addEventListener('sse', function(e) {
+         log('via Listener: '+JSON.parse(e.data)+'\n');
+      });
+      eventSource.addEventListener('bye', function(e) {
+         log("Event: bye, data: " + e.data);
+      });
+
+      eventSource.onmessage = function(e) {
+        log(e.data + '\n');
+      };
+    }
+
+   function stop_polling() { // when "Stop" button pressed
+      eventSource.close();
+      log("[[DEBUG: eventSource.close()]]\n");
+   }
+
+   function log(msg) {
+//      console.log('Onmessage delivered: ',msg);   <-- helpful to debug lost events that were arriving too quickly for browser
+
+      let textarea = $("#runout");
+//      textarea.val(textarea.val() + msg);             <-- initial way to grow textarea - appears to re-assign each time
+      document.getElementById("runout").value += msg;       // appending appears to be more efficient for larger text volumes
+
+
+      // Chrome showed 'forced reflow' console warnings. Used reference to avoid within same Critical Rendering Path:
+      // https://yonatankra.com/layout-reflow/
+//      textarea.scrollTop(textarea[0].scrollHeight);  <-- initial way to query scrollHeight - appears to cause 'forced reflow' issues when within same CRP
+      requestAnimationFrame(() => textarea.scrollTop(textarea[0].scrollHeight));
+   }
+
+    // adapted from: https://api.jquery.com/jquery.post/
+   function mySubmit( event ) {              // intended to register for all buttons in form
+      event.preventDefault();             // stop normal form submission
+      $("#runout").val("");               // empty output area
+
+      var src = $("#spinner").html();     // save existing content
+      $("#spinner").html('<img src="{{ url_for('static', filename='images/loading.gif') }}">');
+
+      var form = $("#inform"),
+      value = this.getAttribute('data-value'),
+      dirs = form.find("textarea[name='dirs']").val(),
+      url = form.attr("action");
+      var mons = $('#selectedmons').val() || [];
+
+      $.post(url, {
+         'dirs': dirs,
+         'mons': mons.join(','),
+         'data-toempty': value[0],
+         'data-toload': value[1],
+      }).done(function (response) {
+         let textarea = $("#runout");
+         textarea.val(textarea.val() + '[[DEBUG: Ajax post successful]]\n')
+      }).fail(function (jqXHR, textStatus) {
+         let textarea = $("#runout");
+         textarea.val(textarea.val() + "[[Error: Could not contact server: " + textStatus + ']]\n')
+      }).always(function () {
+         $("#spinner").html(src);        // stop spinner
+         // BIG ASSUMPTION:
+         // - it appears that this done/success response is not sent until the entire POST
+         //   call has ended (successfully or otherwise). This means we can now clean up the global
+         //   eventSource object within same page/context. This ensures unlimited retries within
+         //   load page :-)
+         stop_polling();
+      });
+
+      start_fetch_sse();              // retrieve the output row by row
+   };
+
+   $(document).ready(function() {
+      $('.dropdown-menu li').on('click', mySubmit );       // activate split dropdown options
+      $('#def-button').on('click', mySubmit );             // activate default LHS of split dropdown
+   });
+</script>
+{% endblock scripts %}
