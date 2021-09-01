@@ -96,11 +96,11 @@ function get_all_metrics {
 # fail quickly if issues with connecting to openTSDB
 function open_tsdb_running {
 	(( $# == 2 )) || err "Usage: ${FUNCNAME[0]} <openTSDB host> <openTSDB port>"
-	local host=$1 port=$2 ret
+	local host=$1 port=$2 ret example_metric=vmstat
 
 	ret=$(get_all_metrics "$host" "$port") || return 1
 	# check if expected metric is currently defined
-	fgrep -wq "$METRIC" <<< "$ret" || { warn "openTSDB on $host:$port does not contain metric $METRIC...giving up"; return 1; }
+	fgrep -wq "$example_metric" <<< "$ret" || { warn "openTSDB on $host:$port does not contain metric $example_metric...giving up"; return 1; }
 }
 
 # output space separated list of monitor names that can be expected to have data for CSV conversion
@@ -121,14 +121,14 @@ function available_monitors {
 }
 
 function delete_data {
-	(( $# == 4 )) || err "Usage: ${FUNCNAME[0]} <metric> <openTSDB host> <openTSDB port> <TSDB>"
-	local metric=$1 host=$2 port=$3 tsdb=$4 m errc=0
+	(( $# == 3 )) || err "Usage: ${FUNCNAME[0]} <openTSDB host> <openTSDB port> <TSDB>"
+	local host=$1 port=$2 tsdb=$3 m errc=0
 
 	errc=0
 	for m in $(get_all_metrics "$host" "$port"); do
-		[[ "$m" == "$metric" ]] || continue
+#		[[ "$m" == "$metric" ]] || continue
 		info "emptying data from openTSDB for $m metric..."
-		$tsdb scan --delete 1970/01/01-00:00:00 min $m &>/dev/null || errc=1
+		$tsdb scan --delete 1970/01/01-00:00:00 min $m &>/dev/null || warn "initial delete of $m failed. Running fsck before retrying" && { $tsdb fsck --fix-all 1970/01/01-00:00:00 sum $m && $tsdb scan --delete 1970/01/01-00:00:00 min $m; } &>/dev/null || { errc=1; warn "unable to delete all $m data from openTSDB"; }
 		info "removed all data from openTSDB for $m metric."
 	done
 	if (( errc == 0 )); then
@@ -268,7 +268,7 @@ function load_data {
 	(( $# == 7 )) || err "Usage: ${FUNCNAME[0]} <monitor name> <loaddir vname> <METRIC> <TSDBHOST> <TSDBPORT> <DATACONV> <HOSTS vname>"
 	local mon=$1 loaddir="$2[@]" metric=$3 tsdbhost=$4 tsdbport=$5 dataconv=$6 
 	local -n hosts=$7
-	local start_secs end_secs tcmd cmd txt loadid host d h f uniqnm rows
+	local start_secs end_secs tcmd cmd txt loadid host d h f uniqnm rows metric_nm
 
 	[[ -n "$mon" ]] || err "empty monitor arg"
 	[[ -n "$loaddir" ]] || err "empty loaddir arg"
@@ -308,17 +308,17 @@ function load_data {
 	#  - only the most recent file is loaded (risks missing data if only a short run)
 	#  - some attempt to de-dup the concatenated slowlog files is completed
 
-
+	metric_nm=$mon
 	for host in ${hosts[*]} ; do				# separate load per hostname to support different labelling for each
 		loadid=$(get_loadid "$LOADIDFILE") || return 1	
 		h="$host[@]"					# setup trick to enable cat "${!h}" <-- which works for filenames with spaces
-		(set -o pipefail; $cmd < <(cat "${!h}") | perl ${dataconv}/csv_to_tsdb.pl -tz America/Los_Angeles -m "$metric" -h "$host" -L "$loadid" | pv -lf | nc -w 15 $TSDBHOST $TSDBPORT) 
+		(set -o pipefail; $cmd < <(cat "${!h}") | perl ${dataconv}/csv_to_tsdb.pl -tz America/Los_Angeles -m "$metric_nm" -h "$host" -L "$loadid" | pv -lf | nc -w 15 $TSDBHOST $TSDBPORT) 
 		if (( $? == 0 )); then
 			end_secs=$(date +%s)
 			info "successfully loaded data for $mon monitor from $host ($((end_secs-start_secs)) sec)"
 		else
 			warn "load of $mon monitor data from $host failed."$'\n'"cleaning up its data remnants..."
-			if remove_data "$metric" "$loadid" "$TSDB" ; then
+			if remove_data "$metric_nm" "$loadid" "$TSDB" ; then
 				warn "cleanup for $mon monitor successful"
 			else
 				warn "cleanup for $mon monitor from $host failed. Suggest manual clean of entire openTSDB and then re-load"
@@ -392,7 +392,7 @@ shift $(( $OPTIND - 1 ))
 open_tsdb_running "$TSDBHOST" "$TSDBPORT"|| err "openTSDB not reachable at $TSDBHOST:$TSDBPORT"
 
 if "$EMPTY" ; then
-	delete_data "$METRIC" "$TSDBHOST" "$TSDBPORT" "$TSDB" || err "unable to empty openTSDB of any prior data for metric: $METRIC"
+	delete_data "$TSDBHOST" "$TSDBPORT" "$TSDB" || err "unable to empty openTSDB of any prior data for all metrics"
 	[[ -n "$LOADDIR" ]] || exit 0
 fi
 
