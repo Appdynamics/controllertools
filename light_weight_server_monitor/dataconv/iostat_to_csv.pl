@@ -192,7 +192,7 @@ while ( defined( $row = <STDIN> ) ) {
 		next;				# back to top loop
 	}
 
-	if ($row =~ m/^Device:/){		# input and parse all device rows up to empty row
+	if ($row =~ m/^Device[:]?/){		# input and parse all device rows up to empty row
 		($device_head) = $row =~ m/^(Device.*?util)$/;
 		defined $device_head || die "Failed to parse Device details within: $row";
 		if ($header_todo == 1) {
