@@ -23,9 +23,9 @@ def run_cmd(command):
 		output = process.stdout.readline().rstrip()
 
 
-def run_cmd3(command, shellType=False, stdoutType=subprocess.PIPE):
-	yield "ERROR: /Users/robnav/github/controllertools/light_weight_server_monitor/dataconv/load_all.sh (f=main,l=322) failed: no valid -d directories"
-	yield "Usage: load_all.sh -d <data dir1>,<d2>,<d3> 	# load all monitor data therein - comma separated directories"
-	yield "[-e]						# empty openTSDB of data for test1.1m.avg"
-	yield "[-m	<mon1>,<mon2>]				# chosen monitors to load - comma separated"
-	yield "[-c	<dataconv directory>]			# where the conversion tools live"
+#def run_cmd3(command, shellType=False, stdoutType=subprocess.PIPE):
+#	yield "ERROR: /Users/robnav/github/controllertools/light_weight_server_monitor/dataconv/load_all.sh (f=main,l=322) failed: no valid -d directories"
+#	yield "Usage: load_all.sh -d <data dir1>,<d2>,<d3> 	# load all monitor data therein - comma separated directories"
+#	yield "[-e]						# empty openTSDB of data for test1.1m.avg"
+#	yield "[-m	<mon1>,<mon2>]				# chosen monitors to load - comma separated"
+#	yield "[-c	<dataconv directory>]			# where the conversion tools live"

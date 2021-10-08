@@ -14,6 +14,7 @@ requests = "*"
 gunicorn = "*"
 gevent = "*"
 npm = "*"
+flask-sse = "*"
 
 [requires]
 python_version = "3.7"

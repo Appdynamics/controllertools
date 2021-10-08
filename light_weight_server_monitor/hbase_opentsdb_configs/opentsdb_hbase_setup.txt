@@ -9,7 +9,7 @@
 launchctl limit maxfiles
 sudo launchctl limit maxfiles 65536 200000
 echo "ulimit -n 65536 200000" >> ~/.bash_profile
-echo_if_not_present "kern.maxfiles=200000$'\n'kern.maxfilesperproc=200000" >> /etc/sysctl.conf
+echo_if_not_present "kern.maxfiles=200000"$'\n'"kern.maxfilesperproc=200000" >> /etc/sysctl.conf
 
 [hbase configs]
 conf/hbase-env.sh:
