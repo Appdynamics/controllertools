@@ -14,8 +14,4 @@
 	-t agent:8084:30 \
 	-t dbmon:8085:30 \
 	-t ajax:8086:30 \
-	-t analyticsui:8087:14 \
-	-t analyticsagent:8088:30 \
-	-t universalagent:8093:16 \
 	-t restapi:8095:16 \
-	-t entitysearch:8096:2
