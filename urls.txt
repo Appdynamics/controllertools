@@ -1,0 +1,28 @@
+config:
+	/controller/instance/*/applicationConfiguration*
+
+metrics:
+	/controller/instance/*/metrics*
+
+status:
+	/controller/rest/serverstatus
+
+agent:
+	/controller/instance/*
+
+dbmon:
+	/controller/instance/*/registerDB*
+	/controller/instance/*/registerSQL*
+	/controller/instance/*/writeQueryStats*
+	/controller/instance/*/collectWaitTimes*
+	/controller/instance/*/db-monitor-config*
+
+ajax:
+	/controller/restui/dashboards/*
+	/controller/restui/events/*
+	/controller/restui/warrooms/*
+
+restapi:
+	/controller/rest/applications*
+
+

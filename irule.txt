@@ -1,0 +1,62 @@
+when HTTP_REQUEST {
+	if   {[HTTP::header exists Authorization]} {
+			if   {[HTTP::username] equals "system@system"} {
+				discard
+			}
+	}
+	switch -glob [HTTP::uri] {
+		"/controller/instance/*" -
+		"/controller/sim/*" {
+			switch -glob [HTTP::uri] {
+				"/controller/instance/*/metrics" -
+				"/controller/instance/*/metrics*" {
+					HTTP::header insert "backend" "$poolname"
+					pool ${poolname}_metrics
+				}
+				"/controller/instance/0/applicationConfiguration*" {
+					pool ${poolname}_configreg
+				}
+				"/controller/instance/*/applicationConfiguration*" {
+					pool ${poolname}_configuration
+				}
+				"/controller/instance/*/registerDB*" -
+				"/controller/instance/*/registerSQL*" -
+				"/controller/instance/*/writeQueryStats*" -
+				"/controller/instance/*/collectWaitTimes*" -
+				"/controller/instance/*/db-monitor-config*" {
+					pool ${poolname}_dbmon
+				}
+				"/controller/sim/*/user*" {
+					pool ${poolname}
+				}
+				default {
+					pool ${poolname}_agent
+				}
+			}
+		}
+		"/controller/restui/analytics/*" {
+			pool ${poolname}_analyticsui
+		}
+		"/controller/rest/applications*" {
+			pool ${poolname}_restapi
+		}
+		"controller/restui/entity/search*" {
+			pool ${poolname}_entitysearch
+		}
+		"/controller/restui/*" {
+			switch -glob [HTTP::uri] {
+				"/controller/restui/dashboards/*" -
+				"/controller/restui/events/*" -
+				"/controller/restui/warrooms/*" {
+					pool ${poolname}_ajax
+				}
+				default {
+					pool ${poolname}
+				}
+			}
+		}
+		default {
+			pool ${poolname}
+		}
+	}
+}
