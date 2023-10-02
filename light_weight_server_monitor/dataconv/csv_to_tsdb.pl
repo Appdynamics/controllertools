@@ -69,11 +69,11 @@ while (defined (my $row = <STDIN>) ) {
    chomp( $row );
 
    if ($row =~ m/(?:timestamp,)|(?:,timestamp)/i) {		# assume that this row is a header and possibly start of new sequence of rows
-      @col_header = map { my $c = $_; $c =~ s/\%/pct/; $c =~ tr/(/_/; $c =~ tr/)//d; $c } split(/,/, $row);
+      @col_header = map { my $c = $_; $c =~ s/\%/pct/; $c =~ s/^\s+//; $c =~ s/\s+$//; $c =~ tr/(/_/; $c =~ tr/)//d; $c } split(/,/, $row);
       next;
    }
 
-   my @col = split(/,/, $row);
+   my @col = map { my $c = $_; $c =~ s/^\s+//; $c =~ s/\s+$//; $c } split(/,/, $row);
 
    my %row;
    @row{ @col_header } = @col;		# simplify value lookup
@@ -152,8 +152,9 @@ while (defined (my $row = <STDIN>) ) {
    }
       
    for my $col ( keys %metric_cols ) {	# print out metrics only
-      # throttle outputs to avoid OpenTSDB 'put: Please throttle writes: 10000 RPCs waiting on ' messages
-      sleep 0.1 if $row_count % 150000 == 0;
+# Seems the following 2 rows are no longer necessary with Hbase v2.3.5 - do not have time to tune the more recent HBase's to prevent their online re-orgs from halting the application for minutes at a time
+#      # throttle outputs to avoid OpenTSDB 'put: Please throttle writes: 10000 RPCs waiting on ' messages
+#      sleep 0.5 if $row_count % 1500 == 0;
       print "put $tsdbmetric $epoch $row{ $col } col=$col$device$buffer$port$listener$node$zone$event$connuser$connhost $hoststr $loadid\n" if length($row{ $col });
       ++$row_count;
    }

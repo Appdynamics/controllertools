@@ -1,0 +1,124 @@
+####################
+# watch out for openTSDB 2.4.1 hanging around compactions and no right axis (use 2.3.2 and disable compactions)
+# git stash; git checkout -f v2.3.2; git stash apply; ./build.sh; (cd build; make install; )
+#  for i in gfpools iostat vmstat dbvars conxcount numabuddyrefs slowlog fdcount memsize procio ; do ~/opentsdb/opentsdb/build/tsdb mkmetric $i; done 
+####################
+
+[Mac Configs]
+#https://docs.riak.com/riak/kv/latest/using/performance/open-files-limit/index.html
+launchctl limit maxfiles
+sudo launchctl limit maxfiles 65536 200000
+echo "ulimit -n 65536 200000" >> ~/.bash_profile
+echo_if_not_present "kern.maxfiles=200000"$'\n'"kern.maxfilesperproc=200000" >> /etc/sysctl.conf
+
+[hbase configs]
+conf/hbase-env.sh:
+[export JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk1.7.0_80.jdk/Contents/Home]
+ export JAVA_HOME=/Library/Internet\ Plug-Ins/JavaAppletPlugin.plugin/Contents/Home
+
+conf/hbase-site.xml:
+<configuration>
+  <property>
+      <name>hbase.rootdir</name>
+      <value>file:///Users/rob.navarro/opentsdb/hbase-1.2.3/hbase</value>
+   </property>
+   <property>
+      <name>hbase.zookeeper.property.dataDir</name>
+      <value>/Users/rob.navarro/opentsdb/hbase-1.2.3/zookeeper</value>
+   </property>
+</configuration>
+#
+cat << EOT > ~/opentsdb/opentsdb/build/tsdb.local
+JVMARGS="-Djava.net.preferIPv4Stack=true -Xmx5g -Xms2g"
+GCARGS="-verbose:gc -XX:+UseConcMarkSweepGC -XX:+UseParNewGC -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintTenuringDistribution -XX:GCLogFileSize=100M -XX:NumberOfGCLogFiles=3 -Xloggc:/tmp/tsd-gc-`date +%s`.log"
+
+#if test -t 0; then # if stdin is a tty, don't turn on GC logging.
+#  GCARGS=
+#fi
+
+# The Sun JDK caches all name resolution results forever, which is stupid.
+# This forces you to restart your application if any of the backends change
+# IP. Instead tell it to cache names for only 10 minutes at most.
+FIX_DNS='-Dsun.net.inetaddr.ttl=600'
+JVMARGS="$JVMARGS $GCARGS $FIX_DNS"
+EOT
+# Hbase 2.3.5:
+conf/hbase-env.sh:
+export JAVA_HOME=/Library/Internet\ Plug-Ins/JavaAppletPlugin.plugin/Contents/Home
+export SERVER_GC_OPTS="-XX:+UseConcMarkSweepGC -XX:+UseParNewGC -Xmx4g -Xms2g -verbose:gc -XX:+PrintGCDetails -XX:+PrintGCTimeStamps -XX:+PrintGCDateStamps -XX:+PrintTenuringDistribution -Xloggc:/tmp/hbase-gc-`date +%s`.log"
+
+
+env COMPRESSION=GZ HBASE_HOME=/Users/robnav/opentsdb/hbase-2.3.5  ~/opentsdb/opentsdb/src/create_table.sh
+for i in gfpools iostat vmstat dbvars conxcount numabuddyrefs slowlog fdcount memsize procio ; do ~/opentsdb/opentsdb/build/tsdb mkmetric $i; done
+
+#
+cat << EOT >> opentsdb/src/opentsdb.conf 
+tsd.storage.fix_duplicates=true
+tsd.storage.enable_compaction = false
+EOT
+
+
+[opentsdb 2.0 install]
+- install Java JDK 1.7 from Oracle
+- brew install automake gnuplot
+[follow web page @ https://hbase.apache.org/book.html#quickstart]
+- cd ~/opentsdb/hbase-1.4.9; bin/start-hbase.sh
+- [wait 1 min & view status with localhost:XXXXX - used to be localhost:16010 ]
+- xcode-select --install
+- git clone git://github.com/OpenTSDB/opentsdb.git
+- cd opentsdb; ./build.sh
+- cd ../opentsdb
+- [ sometimes need to patch src/create_table.sh by inserting:
+TSDB_TTL=2147483647
+above the line:
+TSDB_TTL=${TSDB_TTL-'FOREVER'}
+- See: https://community.hortonworks.com/questions/38007/hiis-anything-changed-on-ttl-forever-on-hdp-24.html ]
+- [ empty all hbase tables with: 
+   - bin/hbase shell
+   - list
+   - disable_all '.*'
+   - drop_all '.*'
+   - quit
+- ]
+- [env COMPRESSION=none HBASE_HOME=/Users/robnav/opentsdb/hbase-1.4.9  src/create_table.sh]
+- ~/opentsdb/opentsdb/build/tsdb mkmetric test1.1m.avg
+##
+[start TSD]
+- cd ~/opentsdb/hbase-2.3.5; bin/start-hbase.sh
+- [wait 1 min & view status with localhost:XXXXX - used to be localhost:16010 ]
+- [ get port with: (cd ~/opentsdb/hbase-2.3.5; perl  -lane '{push @p , $_ =~ m/mortbay.log: Started SelectChannelConnector\@0.0.0.0:(\d+)/g } END { print "$p[-1]"}' < $(ls -1tr logs/hbase*log) ) ]
+- cd ~/opentsdb/opentsdb; export tsdtmp=${TMPDIR-'/tmp'}/tsd; mkdir -p "$tsdtmp"; ./build/tsdb tsd --port=4242 --staticroot=build/staticroot --cachedir="$tsdtmp"
+
+[[- cd ~/opentsdb/opentsdb
+- tsdtmp=${TMPDIR-'/tmp'}/tsd    # For best performance, make sure
+- mkdir -p "$tsdtmp"             # your temporary directory uses tmpfs
+- ./build/tsdb tsd --port=4242 --staticroot=build/staticroot --cachedir="$tsdtmp”]]
+
+[validate health]
+browser to localhost:4242
+
+[import data]
+- ~/opentsdb/opentsdb/build/tsdb mkmetric iostat_slowlog.1m.avg
+- cat > datafile.txt << EOT
+iostat_slowlog.1m.avg 1288900000 1.97 field=w_await
+iostat_slowlog.1m.avg 1288900060 10.02 field=r_await
+EOT
+- gzip datafile.txt
+- ./build/tsdb import datafile.txt.gz
+
+[delete metric associated data]
+- ~/opentsdb/opentsdb/build/tsdb scan --delete 1970/01/01-00:00:00 sum iostat_slowlog.1m.avg
+- ~/opentsdb/opentsdb/build/tsdb fsck 1970/01/01-00:00:00 sum iostat_slowlog.1m.avg
+
+
+[show available OpenTSDB metrics]
+curl localhost:4242/api/suggest'?type=metrics&max=200'
+
+[Hbase shell]
+bin/hbase shell <<< '@shell.hbase.configuration.get("hbase.hregion.memstore.mslab.max.allocation")'
+bin/hbase shell <<< "scan 'tsdb', {'LIMIT' => 5}"
+
+[Graphana]
+brew update
+brew install graphana
+grafana-server --config=/usr/local/etc/grafana/grafana.ini --homepath /usr/local/share/grafana cfg:default.paths.logs=/usr/local/var/log/grafana cfg:default.paths.data=/usr/local/var/lib/grafana cfg:default.paths.plugins=/usr/local/var/lib/grafana/plugins

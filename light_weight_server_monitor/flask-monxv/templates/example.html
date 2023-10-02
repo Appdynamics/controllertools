@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Example Template</title>
+</head>
+<body>
+{% if myvar %}
+<h1>The variable I passed in is: {{ myvar }}</h1>
+{% else %}
+<h1>no myvar variable was passed in</h1>
+{% endif %}
+<h1>This is the example template</h1>
+
+<p> blah blah blah</p>
+<a href="https://www.google.com">This is a link to Google</a>
+
+{% for link in links %}
+    <a href="{{ link }}">Here is a link</a>
+{% endfor %}
+<h3>This is the end of the Template</h3>
+
+</body>
+</html>

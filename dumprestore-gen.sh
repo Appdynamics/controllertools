@@ -335,7 +335,11 @@ echo    DumpDir: %DUMPDIR%
 echo    LogFile: %LOG%
 echo.
 
-%DUMPER% -v --single-transaction --skip-lock-tables  --set-gtid-purged=off --routines --result-file=%DUMPDIR%\metadata.tmp %MYSQL_OPTS% $IGNORELIST $DBLIST 2>>"%LOG%"
+rem MySQL v5.7
+rem %DUMPER% -v --single-transaction --skip-lock-tables  --set-gtid-purged=off --routines --result-file=%DUMPDIR%\metadata.tmp %MYSQL_OPTS% $IGNORELIST $DBLIST 2>>"%LOG%"
+rem MySQL v5.5
+rem %DUMPER% -v --single-transaction --skip-lock-tables  --routines --result-file=%DUMPDIR%\metadata.tmp %MYSQL_OPTS% $IGNORELIST $DBLIST 2>>"%LOG%"
+%DUMPER% -v --single-transaction --skip-lock-tables  --routines --result-file=%DUMPDIR%\metadata.tmp %MYSQL_OPTS% $IGNORELIST $DBLIST 2>>"%LOG%"
 if %ERRORLEVEL% NEQ 0 (
 	echo Error (^%ERRORLEVEL%^): metadata dump issue.
 	echo See log: %LOG%

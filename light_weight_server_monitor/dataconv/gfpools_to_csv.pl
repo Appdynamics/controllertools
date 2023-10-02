@@ -39,6 +39,7 @@ while (defined (my $block = <STDIN>)) {
    my ($section_name) = $block =~ m/^\s*(\S+):/;
    defined $section_name or next;		# skip first section delimiter
    next if $section_name eq 'error';
+   $block =~ s/\015?\012/\n/g;			# normalise Windows CRLF to just LF
    $block =~ s/^.*:$//m;			# delete first row
    for my $row ( split(/^/,$block) ) {
       next if $row =~ m/^\s*$/;
