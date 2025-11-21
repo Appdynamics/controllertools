@@ -1,0 +1,17 @@
+[Unit]
+Description=AppDynamics Events Service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Environment=JAVA_HOME=/opt/appdynamics/jre/1.8.0_162
+WorkingDirectory=/opt/appdynamics/events-service/processor
+ExecStart=/opt/appdynamics/events-service/processor/bin/events-service.sh start --properties conf/events-service-api-store.properties
+ExecStop=/opt/appdynamics/events-service/processor/bin/events-service.sh stop
+User=appduser
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+LimitNOFILE=65535

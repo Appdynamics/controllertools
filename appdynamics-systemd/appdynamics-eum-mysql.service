@@ -1,0 +1,18 @@
+[Unit]
+Description=AppDynamics EUM MySQL Database
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=forking
+Environment=JAVA_HOME=/opt/appdynamics/EUM/jre
+WorkingDirectory=/opt/appdynamics/EUM/mysql
+ExecStart=/opt/appdynamics/EUM/orcha/orcha-master/bin/orcha-master -d mysql.groovy -p /opt/appdynamics/EUM/orcha/playbooks/mysql-orcha/start-mysql.orcha -o /opt/appdynamics/EUM/orcha/orcha-master/conf/orcha.properties -c local
+ExecStop=/opt/appdynamics/EUM/orcha/orcha-master/bin/orcha-master -d mysql.groovy -p /opt/appdynamics/EUM/orcha/playbooks/mysql-orcha/stop-mysql.orcha -o /opt/appdynamics/EUM/orcha/orcha-master/conf/orcha.properties -c local
+User=appduser
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+LimitNOFILE=65535

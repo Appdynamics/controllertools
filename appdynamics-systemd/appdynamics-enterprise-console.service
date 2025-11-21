@@ -1,0 +1,17 @@
+[Unit]
+Description=AppDynamics Enterprise Console
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+ExecStart=/opt/appdynamics/platform/platform-admin/bin/platform-admin.sh start-platform-admin
+ExecStop=/opt/appdynamics/platform/platform-admin/bin/platform-admin.sh stop-platform-admin
+User=appdyn
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+LimitNOFILE=65535
+LimitNPROC=8192

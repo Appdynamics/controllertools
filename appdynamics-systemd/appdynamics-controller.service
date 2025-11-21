@@ -1,0 +1,17 @@
+[Unit]
+Description=AppDynamics Controller
+After=After=network.target multi-user.target
+Wants=network.target
+
+Type=forking
+ExecStart=/opt/appdynamics/platform/product/controller/controller-ha/init/appdcontroller.sh start
+ExecStop=/opt/appdynamics/platform/product/controller/controller-ha/init/appdcontroller.sh stop
+User=appdyn
+group=appdyn
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+Type=forking
+RemainAfterExit=yes

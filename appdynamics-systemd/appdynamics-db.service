@@ -1,0 +1,17 @@
+[Unit]
+Description=AppDynamics Controller DB
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+ExecStart=/opt/appdynamics/platform/product/controller/controller-ha/init/appdcontroller-db.sh start
+ExecStop=/opt/appdynamics/platform/product/controller/controller-ha/init/appdcontroller-db.sh stop
+User=appdyn
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+LimitNOFILE=65535
+LimitNPROC=8192

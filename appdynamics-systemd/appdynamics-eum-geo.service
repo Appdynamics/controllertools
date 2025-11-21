@@ -1,0 +1,15 @@
+[Unit]
+Description=AppDynamics EUM Geo Server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=forking
+Environment=JAVA_HOME=/opt/appdynamics/EUM/jre
+WorkingDirectory=/opt/tomcat7
+ExecStart=/opt/tomcat7/bin/startup.sh
+ExecStop=/opt/tomcat7/bin/startup.sh
+User=appduser
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,17 @@
+[Unit]
+Description=AppDynamics Database Agent
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=forking
+WorkingDirectory=/opt/appdynamics/dbagent
+ExecStart=/opt/appdynamics/dbagent/start-dbagent -Xmx5g -Ddbagent.name=DB_Agent_%H
+User=appduser
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+LimitNOFILE=65535

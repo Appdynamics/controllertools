@@ -1,0 +1,18 @@
+[Unit]
+Description=AppDynamics EUM Processor
+Wants=network-online.target
+BindsTo=appdynamics-eum-mysql.service
+After=network-online.target,appdynamics-eum-mysql.service
+
+[Service]
+Type=forking
+WorkingDirectory=/opt/appdynamics/EUM/eum-processor
+ExecStart=/opt/appdynamics/EUM/eum-processor/bin/eum.sh start
+ExecStop=/opt/appdynamics/EUM/eum-processor/bin/eum.sh stop
+User=appduser
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+LimitNOFILE=65535
